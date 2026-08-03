@@ -1,0 +1,28 @@
+name: fed-admin-frontend
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
+
+services:
+  fed-admin-frontend:
+    build:
+      context: .
+      target: fed-admin-frontend
+    image: ${CONTAINER_REGISTRY:-localhost}/fed-admin-frontend:${CONTAINER_TAG:-production}
+    restart: unless-stopped
+    expose:
+      - '80'
+    ports:
+      - '8105:80'
+    networks:
+      - traefik
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik}
+      traefik.http.routers.fed-admin-frontend.rule: Host(`${ADMIN_FRONTEND_DOMAIN:-admin.teknologappen.se}`)
+      traefik.http.routers.fed-admin-frontend.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.fed-admin-frontend.tls: 'true'
+      traefik.http.routers.fed-admin-frontend.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      traefik.http.services.fed-admin-frontend.loadbalancer.server.port: '80'
