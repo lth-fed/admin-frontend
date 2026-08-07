@@ -41,23 +41,7 @@ pnpm build
 
 ## Build and push production images
 
-Build the static application first:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-Then build and push images:
-
-```sh
-export CONTAINER_REGISTRY=registry.esek.se/esek
-export CONTAINER_TAG=0.0.1-alpha.1
-
-podman login registry.esek.se
-podman compose build
-podman compose push fed-admin-frontend
-```
+Run `./build-push.sh 0.0.1-alpha.2`.
 
 No production `.env` file or secrets are needed for build.
 

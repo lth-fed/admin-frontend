@@ -1,6 +1,7 @@
 import type { components } from './generated/minilith';
 
 export type Activity = components['schemas']['Activity'];
+export type ActivityHostInvite = components['schemas']['ActivityHostInvite'];
 export type BriefActivity = components['schemas']['BriefActivity'];
 export type PutActivity = components['schemas']['PutActivity'];
 export type ReportRequest = components['schemas']['ReportRequest'];

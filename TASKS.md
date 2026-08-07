@@ -1,32 +1,25 @@
-- the get groups im member of is removed, since we get that on the user object
-- hide edit button for groups i can't edit! (i am direct admin of it or admin of parent, figure this
-  out on the frontend), also highlight groups I am admin over
-- can you investigate if the auth persists between days of not opening the website?
-- languages wrong way around in groups (could be frontend or seeding issue)
-- approve button for indivitual requests to join memberships, instead of an input to enter people to
-  allow
-- rename "Groups with activity access" to "Groups whose admins (and subgroups' admins) can see our
-  activities" (change the swedish i18n too).
-- english override isn't working, it stops after first; make all overrides toggle switches
-- make full page error when we don't have any adminships
-- toast on auth errors (error_message in query as per oidc specs, see if this is a functionality in
-  the oidc library)
-- only allow editing admins for my subgroups (fetch fails because we don't have authorization, so
-  don't do it)
-- contact validate phone number & clear on type change
-- toast with error on invalid input in form (with which field is invalid)
-- also show which field is invalid
-- organizer dropdown should only contain the groups i am admin of
-- are dropdowns svar dropdowns?
-- rename "Hide from other administrators" to "Make this activity extra hidden (hides it from the
-  administrators from other groups configured in the group settings)", including swedish translation
-- max tickets default to unset (= i32::MAX) (make the i32::max for max_tickets on activity &
-  ticket_kind not shown in frontend, just have a toggle for setting a max, if it's off, use the
-  i32::MAX)
-- when trying to edit tickets: Uncaught Error: Missing parameter 'id' in route /activities/[id]
-  (maybe update api schema (i've restarted backend))
-- the request to upload images responds with
-  `<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Each form field that you specify in a form must appear in the list of policy conditions. &quot;content-length-range&quot; not specified in the policy.</Message></ Error>`
-  even though content-length-range is part of the polcy BASE64 encoded string in the request.
-- make days clickable in the calendar, but add a back button or a dropdown to select month / day, so
-  the admin can go back
+- [ ] do the following items, check them off as you complete them. Make no other changes to this doc
+- the CORS on rustfs s3 doesn't work, can you add traefik lables to it to allow traffic from app.teknologappen.se & admin.teknologappen.se?
+- email login open in new tab doesn't work! it complains about no state
+- can you make adminships&memberships not reference users, so we can add users who are not registered yet?
+- i don't know if this is done already, but can you check if user exists when adding memberships / adminships, so we don't get a 500 DB error
+- frontend: for all admin groups, get members & admins (update handler to give name too!) & autofill them for all user fields. Cache!
+- when adding admins that don't exist, without a prefix (email:), add button in autofill (the one mentioned above) to invite user (adds admin with email prefix)
+- move group path settings to advanced
+- enable "use different enlish text" by default
+- add button & functionality to remove notification
+- when saving ticket kind: Proxy object could not be cloned. when save ticket kind; structured clone doesn't work in svelte, unless you $state.snapshot it
+- save failed -> toast everywhere, including ticket kind
+- make a table in 0-utils.sql which keeps track of uploaded images (i.e. requests to /upload-image). Just keep the ID. Will enable future garbage collection.
+- button to duplicera aktiviteter & biljettyper & tillval
+- redigera biljett efter den börjat säljas (prova PUT, om det inte går, gör detta:): stäng försäljning av biljett, skapa kopia, ändra den, sätt namn till `<namn> v2`
+- can you set up a system for me to write small tips for all fields and buttons. It should be a small question mark icon in the bottom right, be styled nicely. I will write all the texts. Adding a explanation should be as simple as possible. Document it in the readme.
+
+- templates for biljetttyper som man kan välja. When editing ticket, check if the settings could be made from the simple preset. Add option to change preset type. Make it scalable for other presets.
+    - inga biljetter (then select a group which can view the activity),
+    - gratisbiljett (same as before, max tickets, no addons),
+    - enkel biljett (with price, max tickets, addons), 
+    - enkel biljett med anmodade biljetter (same as enkel, but add options to make anmodade tickets which give the group selected per anmodad biljettyp a miniumum of x tickets, max tickets is enforced by activity, + same but with inbjuden which makes the price free & set min_tickets to how many are guaranteed to have ticket),
+    - advanced (all current options).
+- stats & charts for selected options of the purchased tickets like google forms, to see how many answered each question (i.e. how many selected Vegan from the food preference addon, if text field, give the list of non-empty/null answers)
+- autofill the other addons' (from same and other ticket kinds) names, to reduce the risk of having `Matpref`, `Mat pref`, `Mat preferens`

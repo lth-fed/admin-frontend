@@ -556,6 +556,14 @@ a {
 	color: #dfe3e0;
 	background: #292e2b;
 }
+.button-link.compact {
+	padding: 6px 9px;
+	font-size: 0.78rem;
+}
+.button-link:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
 .tabs {
 	display: flex;
 	gap: 5px;
@@ -610,6 +618,17 @@ a {
 	justify-content: space-between;
 	gap: 12px;
 }
+.host-invitations {
+	margin-bottom: 20px;
+}
+.host-invitations .section-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.host-help {
+	margin-top: -8px;
+}
 .host-tree {
 	max-height: 430px;
 	overflow: auto;
@@ -659,6 +678,25 @@ a {
 .host-tree-check {
 	flex: 1;
 	cursor: pointer;
+}
+.host-tree-check:has(input:disabled) {
+	cursor: default;
+	opacity: 0.72;
+}
+.host-tree-invite {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+	color: #d0d4d1;
+	font-size: 0.87rem;
+}
+.host-tree-invite > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .host-tree-check span,
 .host-tree-label {

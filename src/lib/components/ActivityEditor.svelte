@@ -3,12 +3,17 @@
 	import { resolve } from '$app/paths';
 	import type { Pathname } from '$app/types';
 	import {
+		addActivityVerifier,
 		downloadActivityReport,
 		getActivity,
 		getTicketKind,
 		getMe,
+		inviteActivityHost,
 		listActivityTicketKinds,
 		listGroupTree,
+		listPendingActivityHosts,
+		listActivityVerifiers,
+		removeActivityVerifier,
 		saveActivity
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
@@ -23,10 +28,19 @@
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
+	import UserList from '$lib/components/UserList.svelte';
 	import { dateTime, kronor, localize } from '$lib/i18n';
 	import { uploadImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
-	import { ArrowLeft, ChevronDown, ChevronRight, Download, Plus, Trash2 } from '@lucide/svelte';
+	import {
+		ArrowLeft,
+		ChevronDown,
+		ChevronRight,
+		Download,
+		Plus,
+		Send,
+		Trash2
+	} from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
@@ -54,6 +68,10 @@
 	let reportCategoryOptions = $state<string[]>([]);
 	let externalSaleFees = $state<number | undefined>(undefined);
 	let externalSales = $state<ExternalSaleCategory[]>([]);
+	let savedHostIds = $state<string[]>([]);
+	let pendingHostIds = $state<string[]>([]);
+	let invitingHostId = $state<string | null>(null);
+	let verifiers = $state<string[]>([]);
 	const expandedHostGroups = new SvelteSet<string>();
 	let form = $state<PutActivity>({
 		responsible_name: '',
@@ -72,12 +90,9 @@
 	});
 	const contactValue = $derived(form.responsible_contact.replace(/^(mailto:|tel:)/, ''));
 	const creatorGroup = $derived(groups.find((group) => group.id === form.creator_id));
-	const canAdminCreator = $derived(adminGroupIds.includes(form.creator_id));
 	const canEdit = $derived(
 		isNew ||
-			adminGroupIds.some(
-				(groupId) => groupId === form.creator_id || form.host_ids.includes(groupId)
-			)
+			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
 	);
 	const hostTreeRows = $derived.by(() => {
 		const sorted = [...groups].sort((a, b) => a.path.localeCompare(b.path));
@@ -122,6 +137,15 @@
 					getActivity(id),
 					listActivityTicketKinds(id)
 				]);
+				const additionalHostIds = activity.hosts
+					.map((host) => host.id)
+					.filter((hostId) => hostId !== activity.creator_id);
+				const mayEdit = me.admin_group_ids.some(
+					(groupId) => groupId === activity.creator_id || additionalHostIds.includes(groupId)
+				);
+				const [pendingHosts, activityVerifiers] = mayEdit
+					? await Promise.all([listPendingActivityHosts(id), listActivityVerifiers(id)])
+					: [[], []];
 				form = {
 					responsible_name: activity.responsible.name,
 					responsible_contact: activity.responsible.contact,
@@ -140,10 +164,11 @@
 					is_hidden: activity.is_hidden,
 					is_hidden_for_other_admins: activity.is_hidden_for_other_admins,
 					max_tickets: activity.max_tickets,
-					host_ids: activity.hosts
-						.map((host) => host.id)
-						.filter((hostId) => hostId !== activity.creator_id)
+					host_ids: additionalHostIds
 				};
+				savedHostIds = additionalHostIds;
+				pendingHostIds = pendingHosts.map((group) => group.id);
+				verifiers = activityVerifiers;
 				imageUrl = activity.image_url;
 				contactKind = activity.responsible.contact.startsWith('tel:') ? 'tel' : 'mailto';
 				limitCapacity = activity.max_tickets !== I32_MAX;
@@ -224,11 +249,8 @@
 			(!Number.isInteger(form.max_tickets) || form.max_tickets < minimumCapacity)
 		)
 			return issue(m.activity_capacity(), m.capacity_too_low({ minimum: minimumCapacity }));
-		if (!id) {
-			const submittedHosts = new SvelteSet([form.creator_id, ...form.host_ids]);
-			if (!adminGroupIds.some((groupId) => submittedHosts.has(groupId)))
-				return issue(m.hosts(), m.admin_host_required());
-		}
+		if (!id && !adminGroupIds.includes(form.creator_id))
+			return issue(m.creator(), m.admin_host_required());
 		if ((north && !east) || (!north && east))
 			return issue(`${m.latitude()} / ${m.longitude()}`, m.coordinates_together());
 		if (north && (!Number.isFinite(Number(north)) || Math.abs(Number(north)) > 90))
@@ -248,6 +270,7 @@
 	}
 
 	function toggleHost(groupId: string, checked: boolean): void {
+		if (!savedHostIds.includes(groupId) || !adminGroupIds.includes(groupId)) return;
 		form.host_ids = checked
 			? [...new SvelteSet([...form.host_ids, groupId])]
 			: form.host_ids.filter((id) => id !== groupId);
@@ -259,8 +282,33 @@
 	}
 
 	function updateCreator(groupId: string): void {
+		if (id) return;
 		form.creator_id = groupId;
-		form.host_ids = form.host_ids.filter((hostId) => hostId !== groupId);
+	}
+
+	async function inviteHost(groupId: string): Promise<void> {
+		if (!id || savedHostIds.includes(groupId) || pendingHostIds.includes(groupId)) return;
+		invitingHostId = groupId;
+		error = null;
+		try {
+			await inviteActivityHost(id, groupId);
+			pendingHostIds = [...new SvelteSet([...pendingHostIds, groupId])];
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			invitingHostId = null;
+		}
+	}
+
+	async function changeVerifier(run: () => Promise<void>): Promise<void> {
+		if (!id) return;
+		error = null;
+		try {
+			await run();
+			verifiers = await listActivityVerifiers(id);
+		} catch (cause) {
+			error = frontendError(cause);
+		}
 	}
 
 	async function chooseImage(event: Event): Promise<void> {
@@ -291,6 +339,9 @@
 		error = null;
 		try {
 			const activityId = id ?? crypto.randomUUID();
+			const keepsAdminAccess = adminGroupIds.some(
+				(groupId) => groupId === form.creator_id || form.host_ids.includes(groupId)
+			);
 			const coordinate = north && east ? { north: Number(north), east: Number(east) } : undefined;
 			await saveActivity(activityId, {
 				...form,
@@ -300,7 +351,12 @@
 					coordinate_wgs84: coordinate
 				}
 			});
-			if (!id) await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
+			if (!id) {
+				await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
+			} else {
+				savedHostIds = [...form.host_ids];
+				if (!keepsAdminAccess) await goto(resolve('/'), { replaceState: true });
+			}
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
@@ -433,7 +489,7 @@
 					</div>
 					<div class="field">
 						<span>{m.creator()}</span>
-						{#if canAdminCreator || !form.creator_id}
+						{#if isNew}
 							<Select
 								value={form.creator_id}
 								options={groups
@@ -447,7 +503,7 @@
 							<div class="readonly-value">
 								<strong
 									>{localize(creatorGroup?.name, creatorGroup?.path ?? form.creator_id)}</strong>
-								<small>{m.organizer_not_administered()}</small>
+								<small>{m.creator_immutable()}</small>
 							</div>
 						{/if}
 					</div>
@@ -531,6 +587,9 @@
 						<h2 class="section-title">{m.hosts()}</h2>
 						<span class="pill">{m.hosts_selected({ count: form.host_ids.length })}</span>
 					</div>
+					<p class="muted host-help">
+						{id ? m.hosts_invitation_help() : m.save_before_inviting_hosts()}
+					</p>
 					<div class="host-tree">
 						{#each hostTreeRows as row (row.group.id)}
 							<div class="host-tree-row" style={`padding-left: ${row.depth * 20 + 8}px`}>
@@ -556,13 +615,39 @@
 										<span class="pill">{m.creator()}</span>
 									</span>
 								{:else}
-									<label class="host-tree-check">
-										<input
-											type="checkbox"
-											checked={form.host_ids.includes(row.group.id)}
-											onchange={(event) => toggleHost(row.group.id, event.currentTarget.checked)} />
-										<span>{localize(row.group.name, row.group.path)}</span>
-									</label>
+									{#if savedHostIds.includes(row.group.id)}
+										<label class="host-tree-check">
+											<input
+												type="checkbox"
+												checked={form.host_ids.includes(row.group.id)}
+												disabled={!adminGroupIds.includes(row.group.id)}
+												onchange={(event) =>
+													toggleHost(row.group.id, event.currentTarget.checked)} />
+											<span>{localize(row.group.name, row.group.path)}</span>
+											{#if !adminGroupIds.includes(row.group.id)}
+												<span class="pill">{m.host_remove_own_only()}</span>
+											{/if}
+										</label>
+									{:else if pendingHostIds.includes(row.group.id)}
+										<span class="host-tree-label">
+											{localize(row.group.name, row.group.path)}
+											<span class="pill">{m.host_invite_pending()}</span>
+										</span>
+									{:else}
+										<div class="host-tree-invite">
+											<span>{localize(row.group.name, row.group.path)}</span>
+											{#if id}
+												<button
+													class="button-link secondary compact"
+													type="button"
+													disabled={invitingHostId === row.group.id}
+													onclick={() => void inviteHost(row.group.id)}>
+													<Send size={14} />
+													{invitingHostId === row.group.id ? m.inviting_host() : m.invite_host()}
+												</button>
+											{/if}
+										</div>
+									{/if}
 								{/if}
 							</div>
 						{/each}
@@ -607,6 +692,20 @@
 									{/if}
 								</li>{/each}
 						</ul>{/if}
+				</section>
+			{/if}
+
+			{#if id && canEdit}
+				<section class="card card-pad stack">
+					<p class="muted">{m.activity_verifiers_help()}</p>
+					<UserList
+						title={m.activity_verifiers()}
+						items={verifiers}
+						addLabel={m.verifier_user_id()}
+						addText={m.grant_access()}
+						removeText={m.revoke_access()}
+						onadd={(userId) => changeVerifier(() => addActivityVerifier(id!, userId))}
+						onremove={(userId) => changeVerifier(() => removeActivityVerifier(id!, userId))} />
 				</section>
 			{/if}
 

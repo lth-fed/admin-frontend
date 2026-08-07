@@ -2,6 +2,7 @@ import * as m from '$lib/paraglide/messages';
 import { api, mutationData, responseData } from './client';
 import type {
 	Activity,
+	ActivityHostInvite,
 	ActivityTicketKind,
 	BriefActivity,
 	Group,
@@ -42,6 +43,72 @@ export async function getActivity(id: string): Promise<Activity> {
 
 export async function saveActivity(id: string, body: PutActivity): Promise<void> {
 	mutation(await api.PUT('/admin/activities/{id}', { params: { path: { id } }, body }));
+}
+
+export async function listActivityHostInvites(): Promise<ActivityHostInvite[]> {
+	return responseData(await api.GET('/admin/activity-host-invites'));
+}
+
+export async function listPendingActivityHosts(activityId: string): Promise<Group[]> {
+	return responseData(
+		await api.GET('/admin/activities/{activity_id}/host-invites', {
+			params: { path: { activity_id: activityId } }
+		})
+	);
+}
+
+export async function inviteActivityHost(activityId: string, groupId: string): Promise<void> {
+	mutation(
+		await api.PUT('/admin/activities/{activity_id}/host-invites/{group_id}', {
+			params: { path: { activity_id: activityId, group_id: groupId } }
+		})
+	);
+}
+
+export async function acceptActivityHostInvite(activityId: string, groupId: string): Promise<void> {
+	mutation(
+		await api.POST('/admin/activity-host-invites/{activity_id}/{group_id}/accept', {
+			params: { path: { activity_id: activityId, group_id: groupId } }
+		})
+	);
+}
+
+export async function declineActivityHostInvite(
+	activityId: string,
+	groupId: string
+): Promise<void> {
+	mutation(
+		await api.DELETE('/admin/activity-host-invites/{activity_id}/{group_id}', {
+			params: { path: { activity_id: activityId, group_id: groupId } }
+		})
+	);
+}
+
+export async function listActivityVerifiers(activityId: string): Promise<string[]> {
+	return responseData(
+		await api.GET('/admin/activities/{activity_id}/verifiers', {
+			params: { path: { activity_id: activityId } }
+		})
+	);
+}
+
+export async function addActivityVerifier(activityId: string, verifierId: string): Promise<void> {
+	mutation(
+		await api.PUT('/admin/activities/{activity_id}/verifiers/{verifier_id}', {
+			params: { path: { activity_id: activityId, verifier_id: verifierId } }
+		})
+	);
+}
+
+export async function removeActivityVerifier(
+	activityId: string,
+	verifierId: string
+): Promise<void> {
+	mutation(
+		await api.DELETE('/admin/activities/{activity_id}/verifiers/{verifier_id}', {
+			params: { path: { activity_id: activityId, verifier_id: verifierId } }
+		})
+	);
 }
 
 export async function downloadActivityReport(id: string, body: ReportRequest): Promise<Blob> {

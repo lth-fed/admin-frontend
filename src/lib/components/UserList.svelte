@@ -5,6 +5,7 @@
 		items,
 		addLabel = m.user_id(),
 		addText = m.add(),
+		removeText = m.remove(),
 		onadd,
 		onremove
 	}: {
@@ -12,6 +13,7 @@
 		items: string[];
 		addLabel?: string;
 		addText?: string;
+		removeText?: string;
 		onadd: (value: string) => Promise<void>;
 		onremove?: (value: string) => Promise<void>;
 	} = $props();
@@ -44,7 +46,7 @@
 					<code>{item}</code>{#if onremove}<button
 							class="button-link secondary danger-button"
 							type="button"
-							onclick={() => void onremove?.(item)}>{m.remove()}</button
+							onclick={() => void onremove?.(item)}>{removeText}</button
 						>{/if}
 				</li>{/each}
 		</ul>{/if}

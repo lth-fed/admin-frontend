@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { listActivities } from '$lib/api/admin';
+	import {
+		acceptActivityHostInvite,
+		declineActivityHostInvite,
+		listActivities,
+		listActivityHostInvites
+	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { BriefActivity } from '$lib/api/types';
+	import type { ActivityHostInvite, BriefActivity } from '$lib/api/types';
 	import { dateTime, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -14,16 +19,20 @@
 		type CalendarInstanceApi
 	} from '@svar-ui/svelte-calendar';
 	import { Select } from '@svar-ui/svelte-core';
-	import { Plus } from '@lucide/svelte';
+	import { Check, Plus, Users, X } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	let activities = $state<BriefActivity[]>([]);
+	let hostInvites = $state<ActivityHostInvite[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let invitationError = $state<string | null>(null);
 	let organization = $state('');
 	let currentView = $state('month');
 	let currentDate = $state(new Date());
 	let visibleRange = $state({ start: new Date(), end: new Date() });
 	let calendarApi: CalendarInstanceApi | null = null;
+	const respondingInvites = new SvelteSet<string>();
 	const selectedPeriod = $derived(formatPeriod(currentView, currentDate, visibleRange));
 
 	const organizations = $derived(
@@ -49,6 +58,39 @@
 			color: activity.is_hidden ? '#3f4541' : '#626b65'
 		}))
 	);
+
+	$effect(() => {
+		void loadHostInvites();
+	});
+
+	function inviteKey(invite: ActivityHostInvite): string {
+		return `${invite.activity_id}:${invite.group_id}`;
+	}
+
+	async function loadHostInvites(): Promise<void> {
+		invitationError = null;
+		try {
+			hostInvites = await listActivityHostInvites();
+		} catch (cause) {
+			invitationError = frontendError(cause);
+		}
+	}
+
+	async function respondToInvite(invite: ActivityHostInvite, accept: boolean): Promise<void> {
+		const key = inviteKey(invite);
+		respondingInvites.add(key);
+		invitationError = null;
+		try {
+			if (accept) await acceptActivityHostInvite(invite.activity_id, invite.group_id);
+			else await declineActivityHostInvite(invite.activity_id, invite.group_id);
+			hostInvites = hostInvites.filter((candidate) => inviteKey(candidate) !== key);
+			if (accept) void load(visibleRange.start, visibleRange.end);
+		} catch (cause) {
+			invitationError = frontendError(cause);
+		} finally {
+			respondingInvites.delete(key);
+		}
+	}
 
 	async function load(start: Date, end: Date): Promise<void> {
 		loading = true;
@@ -131,6 +173,52 @@
 	</div>
 	<a class="button-link" href={resolve('/activities/new')}><Plus size={18} /> {m.new_activity()}</a>
 </header>
+
+{#if invitationError}<p class="error-banner" role="alert">{invitationError}</p>{/if}
+{#if hostInvites.length > 0}
+	<section class="card card-pad host-invitations">
+		<div class="section-heading">
+			<div>
+				<h2 class="section-title"><Users size={19} /> {m.host_invitations()}</h2>
+				<p class="muted">{m.host_invitations_description()}</p>
+			</div>
+			<span class="pill">{hostInvites.length}</span>
+		</div>
+		<ul class="list">
+			{#each hostInvites as invite (inviteKey(invite))}
+				<li>
+					<div class="list-main">
+						<strong>{localize(invite.activity_title)}</strong>
+						<span>{dateTime(invite.activity_time_start)}</span>
+						<span
+							>{m.host_invitation_group({
+								group: localize(invite.group_name, invite.group_path)
+							})}</span>
+						<span>{m.host_invitation_from({ creator: localize(invite.creator_name) })}</span>
+					</div>
+					<div class="toolbar">
+						<button
+							class="button-link"
+							type="button"
+							disabled={respondingInvites.has(inviteKey(invite))}
+							onclick={() => void respondToInvite(invite, true)}>
+							<Check size={16} />
+							{m.accept()}
+						</button>
+						<button
+							class="button-link secondary"
+							type="button"
+							disabled={respondingInvites.has(inviteKey(invite))}
+							onclick={() => void respondToInvite(invite, false)}>
+							<X size={16} />
+							{m.decline()}
+						</button>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
 
 <div class="toolbar between" style="margin-bottom: 14px">
 	<div class="toolbar">
