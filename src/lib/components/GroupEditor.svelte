@@ -19,7 +19,8 @@
 		saveGroup
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { Group, PutGroup } from '$lib/api/types';
+	import type { AdminUser, Group, PutGroup } from '$lib/api/types';
+	import { loadGroupUserOptions } from '$lib/group-users';
 	import { localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import RelationList from '$lib/components/RelationList.svelte';
@@ -34,9 +35,10 @@
 	let loading = $state(false);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
-	let members = $state<string[]>([]);
+	let members = $state<AdminUser[]>([]);
 	let requests = $state<string[]>([]);
-	let admins = $state<string[]>([]);
+	let admins = $state<AdminUser[]>([]);
+	let userSuggestions = $state<AdminUser[]>([]);
 	let joiners = $state<Group[]>([]);
 	let activityAdmins = $state<Group[]>([]);
 	let logoUrl = $state('');
@@ -92,8 +94,13 @@
 		if (!id) return;
 		loading = true;
 		try {
-			const [loadedTree, me] = await Promise.all([listGroupTree(), getMe()]);
+			const [loadedTree, me, loadedUsers] = await Promise.all([
+				listGroupTree(),
+				getMe(),
+				loadGroupUserOptions()
+			]);
 			tree = loadedTree;
+			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
 			const group = tree.find((item) => item.id === id);
 			if (!group) throw new Error(m.not_found());
@@ -225,7 +232,7 @@
 			showValidation(m.user_id(), m.admin_email_required());
 			return;
 		}
-		if (admins.includes(userId)) return;
+		if (admins.some((admin) => admin.user_id === userId)) return;
 		await action(() => addAdmin(id!, userId), refreshPeople);
 	}
 
@@ -333,6 +340,7 @@
 				listAdmins(id)
 			]);
 		else if (id) admins = await listAdmins(id);
+		userSuggestions = await loadGroupUserOptions(true);
 	}
 	async function refreshRelations(): Promise<void> {
 		if (id)
@@ -388,8 +396,6 @@
 			<section class="card card-pad">
 				<h2 class="section-title">{m.group_details()}</h2>
 				<div class="grid-2">
-					<label class="field"
-						><span>{m.path()}</span><input required bind:value={form.path} /></label>
 					<div class="field">
 						<span>{m.replace_logo()}</span>
 						{#if logoUrl}
@@ -420,6 +426,8 @@
 				<details class="advanced-panel">
 					<summary>{m.advanced()}</summary>
 					<div class="advanced-content">
+						<label class="field"
+							><span>{m.path()}</span><input required bind:value={form.path} /></label>
 						<label class="switch-field">
 							<Switch
 								value={form.limit_membership_visibility}
@@ -453,6 +461,7 @@
 					<UserList
 						title={m.members()}
 						items={members}
+						suggestions={userSuggestions}
 						onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
 						onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
 					<RelationList
@@ -480,6 +489,8 @@
 					<UserList
 						title={m.administrators()}
 						items={admins}
+						suggestions={userSuggestions}
+						allowEmailInvite
 						onadd={addAdministrator}
 						onremove={removeAdministrator} />
 				</section>
@@ -501,6 +512,8 @@
 			<UserList
 				title={m.administrators()}
 				items={admins}
+				suggestions={userSuggestions}
+				allowEmailInvite
 				onadd={addAdministrator}
 				onremove={removeAdministrator} />
 		</section>
@@ -518,16 +531,6 @@
 					labelEn={m.name_en()}
 					required
 					onchange={updateChildName} />
-				<label class="field">
-					<span>{m.path()}</span>
-					<input required disabled={!childPathOverride} bind:value={childForm.path} />
-				</label>
-				<label class="switch-field path-override-action">
-					<Switch
-						value={childPathOverride}
-						onchange={({ value }) => toggleChildPathOverride(value)} />
-					<span>{m.override_path()}</span>
-				</label>
 				<div class="field child-logo-field">
 					<span>{m.group_logo()}</span>
 					{#if childLogoUrl}
@@ -556,6 +559,16 @@
 			<details class="advanced-panel">
 				<summary>{m.advanced()}</summary>
 				<div class="advanced-content">
+					<label class="switch-field path-override-action">
+						<Switch
+							value={childPathOverride}
+							onchange={({ value }) => toggleChildPathOverride(value)} />
+						<span>{m.override_path()}</span>
+					</label>
+					<label class="field">
+						<span>{m.path()}</span>
+						<input required disabled={!childPathOverride} bind:value={childForm.path} />
+					</label>
 					<label class="switch-field">
 						<Switch
 							value={childForm.limit_membership_visibility}

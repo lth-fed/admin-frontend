@@ -12,6 +12,7 @@
 		required = false,
 		placeholderSv,
 		placeholderEn,
+		suggestions = [],
 		onchange
 	}: {
 		value: Localized;
@@ -21,10 +22,19 @@
 		required?: boolean;
 		placeholderSv?: string;
 		placeholderEn?: string;
+		suggestions?: Localized[];
 		onchange: (value: Localized) => void;
 	} = $props();
 
-	let overrideEnglish = $state(untrack(() => (value.en ?? '') !== (value.sv ?? '')));
+	let overrideEnglish = $state(
+		untrack(() => {
+			const swedish = value.sv ?? '';
+			const english = value.en ?? '';
+			return (swedish === '' && english === '') || swedish !== english;
+		})
+	);
+	const swedishSuggestions = `localized-sv-${crypto.randomUUID()}`;
+	const englishSuggestions = `localized-en-${crypto.randomUUID()}`;
 
 	function updateSwedish(sv: string): void {
 		onchange({ ...value, sv, en: overrideEnglish ? (value.en ?? '') : sv });
@@ -52,10 +62,16 @@
 		{:else}
 			<input
 				{required}
+				list={suggestions.length ? swedishSuggestions : undefined}
 				placeholder={placeholderSv}
 				value={value.sv ?? ''}
 				oninput={(event) => updateSwedish(event.currentTarget.value)} />
 		{/if}
+		{#if suggestions.length}<datalist id={swedishSuggestions}>
+				{#each suggestions as suggestion, index (index)}<option
+						value={suggestion.sv ?? suggestion.en ?? ''}></option
+					>{/each}
+			</datalist>{/if}
 	</label>
 	<div class="localized-english-option">
 		<label class="switch-field localized-override">
@@ -75,11 +91,17 @@
 				{:else}
 					<input
 						{required}
+						list={suggestions.length ? englishSuggestions : undefined}
 						aria-label={labelEn}
 						placeholder={placeholderEn}
 						value={value.en ?? ''}
 						oninput={(event) => updateEnglish(event.currentTarget.value)} />
 				{/if}
+				{#if suggestions.length}<datalist id={englishSuggestions}>
+						{#each suggestions as suggestion, index (index)}<option
+								value={suggestion.en ?? suggestion.sv ?? ''}></option
+							>{/each}
+					</datalist>{/if}
 			</label>
 		{/if}
 	</div>

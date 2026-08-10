@@ -2,6 +2,7 @@ import * as m from '$lib/paraglide/messages';
 import { api, mutationData, responseData } from './client';
 import type {
 	Activity,
+	AdminUser,
 	ActivityHostInvite,
 	ActivityTicketKind,
 	BriefActivity,
@@ -142,6 +143,10 @@ export async function listPurchasedTickets(id: string): Promise<PurchasedTicket[
 	);
 }
 
+export async function listAddonNames(): Promise<PutTicketKind['name'][]> {
+	return responseData(await api.GET('/admin/addon-names'));
+}
+
 export async function getNotification(
 	ticketKindId: string,
 	kind: string
@@ -170,6 +175,14 @@ export async function saveNotification(
 		await api.PUT('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
 			params: { path: { ticket_kind_id: ticketKindId, kind } },
 			body
+		})
+	);
+}
+
+export async function deleteNotification(ticketKindId: string, kind: string): Promise<void> {
+	mutation(
+		await api.DELETE('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
+			params: { path: { ticket_kind_id: ticketKindId, kind } }
 		})
 	);
 }
@@ -204,7 +217,7 @@ export async function approveMemberRequest(groupId: string, memberId: string): P
 	);
 }
 
-export async function listMembers(groupId: string): Promise<string[]> {
+export async function listMembers(groupId: string): Promise<AdminUser[]> {
 	return responseData(
 		await api.GET('/admin/groups/{group_id}/members', {
 			params: { path: { group_id: groupId } }
@@ -228,12 +241,16 @@ export async function removeMember(groupId: string, memberId: string): Promise<v
 	);
 }
 
-export async function listAdmins(groupId: string): Promise<string[]> {
+export async function listAdmins(groupId: string): Promise<AdminUser[]> {
 	return responseData(
 		await api.GET('/admin/groups/{group_id}/admins', {
 			params: { path: { group_id: groupId } }
 		})
 	);
+}
+
+export async function listGroupUsers(): Promise<AdminUser[]> {
+	return responseData(await api.GET('/admin/group-users'));
 }
 
 export async function addAdmin(groupId: string, userId: string): Promise<void> {

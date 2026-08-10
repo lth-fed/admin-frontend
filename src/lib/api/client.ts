@@ -52,5 +52,8 @@ export function mutationData<T>(
 }
 
 export function frontendError(cause: unknown): string | null {
-	return cause instanceof ApiError ? null : cause instanceof Error ? cause.message : String(cause);
+	if (cause instanceof ApiError) return null;
+	const message = cause instanceof Error ? cause.message : String(cause);
+	toasts.show('error', message);
+	return message;
 }

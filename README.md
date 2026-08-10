@@ -39,6 +39,26 @@ pnpm lint
 pnpm build
 ```
 
+## Contextual field and button help
+
+Wrap any field or button in `HelpTip` and provide its translated explanation. The component places a
+small accessible question-mark button in the bottom-right corner and opens the explanation on click:
+
+```svelte
+<script lang="ts">
+	import HelpTip from '$lib/components/HelpTip.svelte';
+	import * as m from '$lib/paraglide/messages';
+</script>
+
+<HelpTip text={m.example_field_help()}>
+	<label class="field"><span>{m.example_field()}</span><input /></label>
+</HelpTip>
+```
+
+Add the explanation key to both `messages/en.json` and `messages/sv.json`. Keeping the explanation
+at the call site makes fields and buttons easy to document incrementally without a separate
+registry.
+
 ## Build and push production images
 
 Run `./build-push.sh 0.0.1-alpha.2`.
@@ -62,10 +82,9 @@ ADMIN_FRONTEND_DOMAIN=admin.teknologappen.se
 It also needs:
 
 - DNS records for both domains pointing to the host.
-- A running Traefik instance with its Docker provider connected to the Podman
-  API socket.
-- A `websecure` entrypoint and an ACME certificate resolver named
-  `letsencrypt` (or matching values in `.env`).
+- A running Traefik instance with its Docker provider connected to the Podman API socket.
+- A `websecure` entrypoint and an ACME certificate resolver named `letsencrypt` (or matching values
+  in `.env`).
 - The external network shared by Traefik and this stack:
 
 ```sh

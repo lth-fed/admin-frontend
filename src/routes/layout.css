@@ -125,6 +125,33 @@ a {
 	font-size: clamp(1.9rem, 3vw, 2.7rem);
 	letter-spacing: -0.045em;
 }
+.statistics-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+	gap: 14px;
+}
+.statistic-row {
+	display: grid;
+	gap: 6px;
+}
+.statistic-track {
+	height: 9px;
+	overflow: hidden;
+	border-radius: 999px;
+	background: #303632;
+}
+.statistic-track span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: #8fa69a;
+}
+.answer-list {
+	max-height: 15rem;
+	margin: 0;
+	padding-left: 1.25rem;
+	overflow: auto;
+}
 .eyebrow {
 	margin: 0;
 	color: #aeb4b0;
@@ -504,6 +531,9 @@ a {
 }
 .calendar-shell {
 	height: 660px;
+	overflow: hidden;
+}
+.calendar-shell .wx-scrollable-section {
 	overflow: hidden;
 }
 .calendar-period {

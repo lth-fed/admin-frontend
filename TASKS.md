@@ -1,25 +1,26 @@
-- [ ] do the following items, check them off as you complete them. Make no other changes to this doc
-- the CORS on rustfs s3 doesn't work, can you add traefik lables to it to allow traffic from app.teknologappen.se & admin.teknologappen.se?
-- email login open in new tab doesn't work! it complains about no state
-- can you make adminships&memberships not reference users, so we can add users who are not registered yet?
-- i don't know if this is done already, but can you check if user exists when adding memberships / adminships, so we don't get a 500 DB error
-- frontend: for all admin groups, get members & admins (update handler to give name too!) & autofill them for all user fields. Cache!
-- when adding admins that don't exist, without a prefix (email:), add button in autofill (the one mentioned above) to invite user (adds admin with email prefix)
-- move group path settings to advanced
-- enable "use different enlish text" by default
-- add button & functionality to remove notification
-- when saving ticket kind: Proxy object could not be cloned. when save ticket kind; structured clone doesn't work in svelte, unless you $state.snapshot it
-- save failed -> toast everywhere, including ticket kind
-- make a table in 0-utils.sql which keeps track of uploaded images (i.e. requests to /upload-image). Just keep the ID. Will enable future garbage collection.
-- button to duplicera aktiviteter & biljettyper & tillval
-- redigera biljett efter den börjat säljas (prova PUT, om det inte går, gör detta:): stäng försäljning av biljett, skapa kopia, ändra den, sätt namn till `<namn> v2`
-- can you set up a system for me to write small tips for all fields and buttons. It should be a small question mark icon in the bottom right, be styled nicely. I will write all the texts. Adding a explanation should be as simple as possible. Document it in the readme.
+- [x] do the following items, check them off as you complete them. Make no other changes to this doc
+- [x] the CORS on rustfs s3 doesn't work, can you add traefik lables to it to allow traffic from app.teknologappen.se & admin.teknologappen.se?
+- [x] email login open in new tab doesn't work! it complains about no state
+- [x] can you make adminships&memberships not reference users, so we can add users who are not registered yet?
+- [x] i don't know if this is done already, but can you check if user exists when adding memberships / adminships, so we don't get a 500 DB error
+- [x] frontend: for all admin groups, get members & admins (update handler to give name too!) & autofill them for all user fields. Cache!
+- [x] when adding admins that don't exist, without a prefix (email:), add button in autofill (the one mentioned above) to invite user (adds admin with email prefix)
+- [x] move group path settings to advanced
+- [x] enable "use different enlish text" by default
+- [x] add button & functionality to remove notification
+- [x] when saving ticket kind: Proxy object could not be cloned. when save ticket kind; structured clone doesn't work in svelte, unless you $state.snapshot it
+- [x] save failed -> toast everywhere, including ticket kind
+- [x] make a table in 0-utils.sql which keeps track of uploaded images (i.e. requests to /upload-image). Just keep the ID. Will enable future garbage collection.
+- [x] button to duplicera aktiviteter & biljettyper & tillval
+- [x] redigera biljett efter den börjat säljas (prova PUT, om det inte går, gör detta:): stäng försäljning av biljett, skapa kopia, ändra den, sätt namn till `<namn> v2`. Om köptillfället är stängt, gör inte detta.
+- [x] can you set up a system for me to write small tips for all fields and buttons. It should be a small question mark icon in the bottom right, be styled nicely. I will write all the texts. Adding a explanation should be as simple as possible. Document it in the readme.
+- [x] keep the adminship dependant on membership.
 
-- templates for biljetttyper som man kan välja. When editing ticket, check if the settings could be made from the simple preset. Add option to change preset type. Make it scalable for other presets.
+- [x] templates for biljetttyper som man kan välja. When editing ticket, check if the settings could be made from the simple preset. Add option to change preset type. Make it scalable for other presets.
     - inga biljetter (then select a group which can view the activity),
     - gratisbiljett (same as before, max tickets, no addons),
     - enkel biljett (with price, max tickets, addons), 
     - enkel biljett med anmodade biljetter (same as enkel, but add options to make anmodade tickets which give the group selected per anmodad biljettyp a miniumum of x tickets, max tickets is enforced by activity, + same but with inbjuden which makes the price free & set min_tickets to how many are guaranteed to have ticket),
     - advanced (all current options).
-- stats & charts for selected options of the purchased tickets like google forms, to see how many answered each question (i.e. how many selected Vegan from the food preference addon, if text field, give the list of non-empty/null answers)
-- autofill the other addons' (from same and other ticket kinds) names, to reduce the risk of having `Matpref`, `Mat pref`, `Mat preferens`
+- [x] stats & charts for selected options of the purchased tickets like google forms, to see how many answered each question (i.e. how many selected Vegan from the food preference addon, if text field, give the list of non-empty/null answers)
+- [x] autofill the other addons' (from same and other ticket kinds) names, to reduce the risk of having `Matpref`, `Mat pref`, `Mat preferens`

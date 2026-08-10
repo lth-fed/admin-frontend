@@ -12,6 +12,7 @@ export type PutTicketKind = components['schemas']['PutTicketKind'];
 export type TicketNotification = components['schemas']['TicketNotification'];
 export type PutTicketNotification = components['schemas']['PutTicketNotification'];
 export type PurchasedTicket = components['schemas']['AdminPurchasedTicket'];
+export type AdminUser = components['schemas']['AdminUser'];
 export type Group = components['schemas']['Group'];
 export type PutGroup = components['schemas']['PutGroup'];
 export type Me = components['schemas']['Me'];

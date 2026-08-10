@@ -8,7 +8,6 @@
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime';
-	import { toasts } from '$lib/toasts.svelte';
 	import { Button, WillowDark } from '@svar-ui/svelte-core';
 	import { CalendarDays, LogOut, Menu, Plus, Users, X } from '@lucide/svelte';
 	import './layout.css';
@@ -63,8 +62,7 @@
 			await persistBrowserLocale(locale);
 		} catch (cause) {
 			selector.value = getLocale();
-			const message = frontendError(cause);
-			if (message) toasts.show('error', message);
+			frontendError(cause);
 		}
 	}
 </script>

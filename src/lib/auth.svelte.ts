@@ -35,7 +35,9 @@ class AuthSession {
 			loadUserInfo: false,
 			automaticSilentRenew: true,
 			monitorSession: false,
-			stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
+			// Email approval links are commonly opened in another tab. sessionStorage is scoped to
+			// one tab, so the callback could not find the OIDC request state created by this page.
+			stateStore: new WebStorageStateStore({ store: window.localStorage }),
 			userStore: new WebStorageStateStore({ store: window.localStorage }),
 			extraQueryParams: {
 				providers: 'email',

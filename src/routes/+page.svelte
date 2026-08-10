@@ -18,9 +18,9 @@
 		type CalendarEvent,
 		type CalendarInstanceApi
 	} from '@svar-ui/svelte-calendar';
-	import { Select } from '@svar-ui/svelte-core';
+	import { Locale as CalendarLocale, Select } from '@svar-ui/svelte-core';
 	import { Check, Plus, Users, X } from '@lucide/svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteDate, SvelteSet } from 'svelte/reactivity';
 
 	let activities = $state<BriefActivity[]>([]);
 	let hostInvites = $state<ActivityHostInvite[]>([]);
@@ -28,12 +28,33 @@
 	let error = $state<string | null>(null);
 	let invitationError = $state<string | null>(null);
 	let organization = $state('');
-	let currentView = $state('month');
+	let currentView = $state('week');
 	let currentDate = $state(new Date());
 	let visibleRange = $state({ start: new Date(), end: new Date() });
 	let calendarApi: CalendarInstanceApi | null = null;
 	const respondingInvites = new SvelteSet<string>();
 	const selectedPeriod = $derived(formatPeriod(currentView, currentDate, visibleRange));
+	const calendarLanguage = getLocale() === 'sv' ? 'sv-SE' : 'en-GB';
+	const calendarWords = createCalendarWords(calendarLanguage);
+	const calendarViews = [
+		{
+			id: 'day',
+			sections: {
+				timeGrid: {
+					yScale: { startHour: 8, endHour: 22, ui: { minUnitHeight: 0 } }
+				}
+			}
+		},
+		{
+			id: 'week',
+			sections: {
+				timeGrid: {
+					yScale: { startHour: 8, endHour: 22, ui: { minUnitHeight: 0 } }
+				}
+			}
+		},
+		'month'
+	];
 
 	const organizations = $derived(
 		[
@@ -104,6 +125,57 @@
 		}
 	}
 
+	function createCalendarWords(locale: 'sv-SE' | 'en-GB') {
+		const monthFull = Array.from({ length: 12 }, (_, month) =>
+			new Intl.DateTimeFormat(locale, { month: 'long' }).format(new Date(2024, month, 1, 12))
+		);
+		const monthShort = Array.from({ length: 12 }, (_, month) =>
+			new Intl.DateTimeFormat(locale, { month: 'short' }).format(new Date(2024, month, 1, 12))
+		);
+		const dayFull = Array.from({ length: 7 }, (_, day) =>
+			new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(new Date(2024, 0, 7 + day, 12))
+		);
+		const dayShort = Array.from({ length: 7 }, (_, day) =>
+			new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(new Date(2024, 0, 7 + day, 12))
+		);
+
+		return {
+			lang: locale,
+			calendar: {
+				monthFull,
+				monthShort,
+				dayFull,
+				dayShort,
+				weekStart: 1,
+				clockFormat: 24,
+				today: m.today()
+			},
+			formats: { timeFormat: '%H:%i' },
+			eventCalendar: {
+				Day: m.day(),
+				Week: m.week(),
+				Month: m.month(),
+				Today: m.today(),
+				'Previous period': m.previous(),
+				'Next period': m.next(),
+				Calendar: m.calendar(),
+				timeScaleFormat: '%H:%i',
+				weekScaleFormat: '%D %j',
+				monthScaleFormat: '%D',
+				weekNumberFormat: '%w'
+			}
+		};
+	}
+
+	function weekNumber(date: Date): number {
+		const thursday = new SvelteDate(date);
+		thursday.setHours(0, 0, 0, 0);
+		thursday.setDate(thursday.getDate() + 3 - ((thursday.getDay() + 6) % 7));
+		const firstThursday = new SvelteDate(thursday.getFullYear(), 0, 4);
+		firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
+		return 1 + Math.round((thursday.getTime() - firstThursday.getTime()) / 604_800_000);
+	}
+
 	function formatPeriod(view: string, date: Date, range: { start: Date; end: Date }): string {
 		const locale = getLocale() === 'sv' ? 'sv-SE' : 'en-GB';
 		if (view === 'month')
@@ -116,12 +188,7 @@
 				year: 'numeric'
 			}).format(date);
 
-		const inclusiveEnd = new Date(range.end.getTime() - 1);
-		return new Intl.DateTimeFormat(locale, {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric'
-		}).formatRange(range.start, inclusiveEnd);
+		return `${m.week()} ${weekNumber(range.start)}`;
 	}
 
 	function initCalendar(api: CalendarInstanceApi): void {
@@ -258,15 +325,17 @@
 
 <div class="agenda-grid">
 	<section class="card calendar-shell" aria-label={m.calendar()} class:loading>
-		<CalendarTheme>
-			<Calendar
-				{events}
-				view="month"
-				views={['day', 'week', 'month']}
-				toolbar={null}
-				readonly
-				init={initCalendar} />
-		</CalendarTheme>
+		<CalendarLocale words={calendarWords}>
+			<CalendarTheme>
+				<Calendar
+					{events}
+					view="week"
+					views={calendarViews}
+					toolbar={null}
+					readonly
+					init={initCalendar} />
+			</CalendarTheme>
+		</CalendarLocale>
 	</section>
 	<section class="card card-pad agenda-list">
 		<h2 class="section-title">{m.agenda()}</h2>

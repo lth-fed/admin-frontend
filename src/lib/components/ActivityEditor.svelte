@@ -12,18 +12,23 @@
 		listActivityTicketKinds,
 		listGroupTree,
 		listPendingActivityHosts,
+		listPurchasedTickets,
 		listActivityVerifiers,
 		removeActivityVerifier,
 		saveActivity
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type {
+		AdminUser,
 		ActivityTicketKind,
 		ExternalSaleCategory,
 		Group,
 		PutActivity,
-		ReportRequest
+		PurchasedTicket,
+		ReportRequest,
+		TicketKind
 	} from '$lib/api/types';
+	import { loadGroupUserOptions } from '$lib/group-users';
 	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
@@ -36,13 +41,16 @@
 		ArrowLeft,
 		ChevronDown,
 		ChevronRight,
+		Copy,
 		Download,
+		Eye,
+		EyeOff,
 		Plus,
 		Send,
 		Trash2
 	} from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
 
 	const I32_MAX = 2_147_483_647;
@@ -72,7 +80,20 @@
 	let pendingHostIds = $state<string[]>([]);
 	let invitingHostId = $state<string | null>(null);
 	let verifiers = $state<string[]>([]);
+	let userSuggestions = $state<AdminUser[]>([]);
+	let addonStatistics = $state<AddonStatistic[]>([]);
 	const expandedHostGroups = new SvelteSet<string>();
+	type AddonStatistic = {
+		key: string;
+		name: TicketKind['available_addons'][number]['name'];
+		answers: number;
+		options: Array<{
+			key: string;
+			name: TicketKind['available_addons'][number]['name'];
+			count: number;
+		}>;
+		texts: string[];
+	};
 	let form = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
@@ -83,7 +104,7 @@
 		time_start: new Date(Date.now() + 86_400_000).toISOString(),
 		time_end: new Date(Date.now() + 90_000_000).toISOString(),
 		image_id: '',
-		is_hidden: false,
+		is_hidden: true,
 		is_hidden_for_other_admins: false,
 		max_tickets: I32_MAX,
 		host_ids: []
@@ -129,8 +150,13 @@
 		loading = true;
 		error = null;
 		try {
-			const [me, groupTree] = await Promise.all([getMe(), listGroupTree()]);
+			const [me, groupTree, loadedUsers] = await Promise.all([
+				getMe(),
+				listGroupTree(),
+				loadGroupUserOptions()
+			]);
 			groups = groupTree;
+			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
 			if (id) {
 				const [activity, activityTickets] = await Promise.all([
@@ -176,6 +202,12 @@
 				east = activity.location.coordinate_wgs84?.east.toString() ?? '';
 				tickets = activityTickets;
 				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
+				const purchases = mayEdit
+					? (
+							await Promise.all(activityTickets.map((ticket) => listPurchasedTickets(ticket.id)))
+						).flat()
+					: [];
+				addonStatistics = buildAddonStatistics(kinds, purchases);
 				minimumCapacity = kinds.reduce(
 					(total, kind) => total + kind.reserved_or_purchased_tickets,
 					0
@@ -206,6 +238,50 @@
 	function updateContactKind(value: string | number): void {
 		contactKind = value === 'tel' ? 'tel' : 'mailto';
 		form.responsible_contact = `${contactKind}:`;
+	}
+
+	function normalizedAddonName(name: { sv?: string; en?: string }): string {
+		return (name.sv || name.en || '')
+			.normalize('NFKD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.toLocaleLowerCase('sv')
+			.replace(/[^a-z0-9]/g, '');
+	}
+
+	function buildAddonStatistics(
+		kinds: TicketKind[],
+		purchases: PurchasedTicket[]
+	): AddonStatistic[] {
+		const kindsById = new SvelteMap(kinds.map((kind) => [kind.ticket_kind_id, kind]));
+		const statistics = new SvelteMap<string, AddonStatistic>();
+		for (const ticket of purchases) {
+			const kind = kindsById.get(ticket.ticket_kind_id);
+			if (!kind) continue;
+			for (const answer of ticket.addons) {
+				const addon = kind.available_addons.find((candidate) => candidate.id === answer.addon_id);
+				if (!addon) continue;
+				const key = normalizedAddonName(addon.name);
+				const statistic = statistics.get(key) ?? {
+					key,
+					name: addon.name,
+					answers: 0,
+					options: [],
+					texts: []
+				};
+				statistic.answers += 1;
+				for (const selected of answer.selected_options) {
+					const option = addon.options.find((candidate) => candidate.idx === selected);
+					if (!option) continue;
+					const optionKey = normalizedAddonName(option.name);
+					const existing = statistic.options.find((candidate) => candidate.key === optionKey);
+					if (existing) existing.count += 1;
+					else statistic.options.push({ key: optionKey, name: option.name, count: 1 });
+				}
+				if (answer.selected_text.trim()) statistic.texts.push(answer.selected_text.trim());
+				statistics.set(key, statistic);
+			}
+		}
+		return [...statistics.values()].sort((left, right) => left.key.localeCompare(right.key));
 	}
 
 	function updateContactValue(value: string): void {
@@ -326,8 +402,7 @@
 		}
 	}
 
-	async function submit(event: SubmitEvent): Promise<void> {
-		event.preventDefault();
+	async function persistActivity(isHidden: boolean): Promise<void> {
 		if (!canEdit) return;
 		const validationIssue = validate();
 		if (validationIssue) {
@@ -345,12 +420,14 @@
 			const coordinate = north && east ? { north: Number(north), east: Number(east) } : undefined;
 			await saveActivity(activityId, {
 				...form,
+				is_hidden: isHidden,
 				location: {
 					...form.location,
 					url: form.location.url || undefined,
 					coordinate_wgs84: coordinate
 				}
 			});
+			form.is_hidden = isHidden;
 			if (!id) {
 				await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
 			} else {
@@ -362,6 +439,15 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	function submit(event: SubmitEvent): void {
+		event.preventDefault();
+		void persistActivity(form.is_hidden);
+	}
+
+	function togglePublished(): void {
+		void persistActivity(!form.is_hidden);
 	}
 
 	async function downloadReport(): Promise<void> {
@@ -400,8 +486,7 @@
 			toasts.show('success', m.report_download_ready());
 		} catch (cause) {
 			reportError = cause instanceof Error ? cause.message : m.report_download_failed();
-			const localError = frontendError(cause);
-			if (localError) toasts.show('error', localError);
+			frontendError(cause);
 		} finally {
 			reporting = false;
 		}
@@ -419,6 +504,29 @@
 	function removeExternalSale(index: number): void {
 		externalSales = externalSales.filter((_, saleIndex) => saleIndex !== index);
 	}
+
+	async function duplicateActivity(): Promise<void> {
+		if (!id || !canEdit) return;
+		saving = true;
+		error = null;
+		try {
+			const activityId = crypto.randomUUID();
+			const copy = $state.snapshot(form);
+			await saveActivity(activityId, {
+				...copy,
+				is_hidden: true,
+				title: {
+					sv: `Kopia av ${copy.title.sv}`,
+					en: `Copy of ${copy.title.en}`
+				}
+			});
+			await goto(resolve('/activities/[id]', { id: activityId }));
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			saving = false;
+		}
+	}
 </script>
 
 <header class="page-header">
@@ -431,7 +539,19 @@
 				: ''}
 		</h1>
 	</div>
-	<a class="button-link secondary" href={resolve('/')}><ArrowLeft size={18} /> {m.back()}</a>
+	<div class="toolbar">
+		{#if id && canEdit}
+			<button
+				class="button-link secondary"
+				type="button"
+				disabled={saving}
+				onclick={() => void duplicateActivity()}>
+				<Copy size={17} />
+				{m.duplicate_activity()}
+			</button>
+		{/if}
+		<a class="button-link secondary" href={resolve('/')}><ArrowLeft size={18} /> {m.back()}</a>
+	</div>
 </header>
 
 {#if loading}
@@ -526,10 +646,6 @@
 									bind:value={form.max_tickets} />
 							</label>
 						{/if}
-						<label class="switch-field" title={m.hide_activity_help()}>
-							<Switch value={form.is_hidden} onchange={({ value }) => (form.is_hidden = value)} />
-							<span>{m.hide_activity()}</span>
-						</label>
 						<label class="switch-field" title={m.hide_other_admins_help()}>
 							<Switch
 								value={form.is_hidden_for_other_admins}
@@ -697,10 +813,52 @@
 
 			{#if id && canEdit}
 				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.addon_statistics()}</h2>
+						<p class="muted">{m.addon_statistics_help()}</p>
+					</div>
+					{#if addonStatistics.length === 0}
+						<p class="empty-state">{m.no_addon_answers()}</p>
+					{:else}
+						<div class="statistics-grid">
+							{#each addonStatistics as statistic (statistic.key)}
+								<article class="nested-card stack">
+									<div class="toolbar between">
+										<h3 class="section-title">{localize(statistic.name)}</h3>
+										<span class="pill">{m.answer_count({ count: statistic.answers })}</span>
+									</div>
+									{#each statistic.options as option (option.key)}
+										<div class="statistic-row">
+											<div class="toolbar between">
+												<span>{localize(option.name)}</span><strong>{option.count}</strong>
+											</div>
+											<div class="statistic-track">
+												<span style={`width: ${(option.count / statistic.answers) * 100}%`}></span>
+											</div>
+										</div>
+									{/each}
+									{#if statistic.texts.length > 0}
+										<h4 class="section-title">{m.text_answers()}</h4>
+										<ul class="answer-list">
+											{#each statistic.texts as answer, answerIndex (`${statistic.key}-${answerIndex}`)}
+												<li>{answer}</li>
+											{/each}
+										</ul>
+									{/if}
+								</article>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			{/if}
+
+			{#if id && canEdit}
+				<section class="card card-pad stack">
 					<p class="muted">{m.activity_verifiers_help()}</p>
 					<UserList
 						title={m.activity_verifiers()}
 						items={verifiers}
+						suggestions={userSuggestions}
 						addLabel={m.verifier_user_id()}
 						addText={m.grant_access()}
 						removeText={m.revoke_access()}
@@ -778,6 +936,14 @@
 			<div class="toolbar">
 				<button class="button-link" type="submit" disabled={saving || uploading}
 					>{saving ? m.saving() : m.save()}</button>
+				<button
+					class="button-link secondary"
+					type="button"
+					disabled={saving || uploading}
+					onclick={togglePublished}>
+					{#if form.is_hidden}<Eye size={17} />{:else}<EyeOff size={17} />{/if}
+					{form.is_hidden ? m.publish() : m.unpublish()}
+				</button>
 			</div>
 		</fieldset>
 	</form>
