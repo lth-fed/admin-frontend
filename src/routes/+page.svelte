@@ -19,7 +19,7 @@
 		type CalendarInstanceApi
 	} from '@svar-ui/svelte-calendar';
 	import { Locale as CalendarLocale, Select } from '@svar-ui/svelte-core';
-	import { Check, Plus, Users, X } from '@lucide/svelte';
+	import { Check, ChevronLeft, ChevronRight, Plus, Users, X } from '@lucide/svelte';
 	import { SvelteDate, SvelteSet } from 'svelte/reactivity';
 
 	let activities = $state<BriefActivity[]>([]);
@@ -41,7 +41,7 @@
 			id: 'day',
 			sections: {
 				timeGrid: {
-					yScale: { startHour: 8, endHour: 22, ui: { minUnitHeight: 0 } }
+					yScale: { startHour: 8, endHour: 24, ui: { minUnitHeight: 0 } }
 				}
 			}
 		},
@@ -49,7 +49,7 @@
 			id: 'week',
 			sections: {
 				timeGrid: {
-					yScale: { startHour: 8, endHour: 22, ui: { minUnitHeight: 0 } }
+					yScale: { startHour: 8, endHour: 24, ui: { minUnitHeight: 0 } }
 				}
 			}
 		},
@@ -288,14 +288,8 @@
 {/if}
 
 <div class="toolbar between" style="margin-bottom: 14px">
-	<div class="toolbar">
-		{#if currentView !== 'month'}
-			<button class="button-link secondary" onclick={() => changeView('month')}>{m.back()}</button>
-		{/if}
-		<button class="button-link secondary" onclick={() => navigate('previous')}
-			>{m.previous()}</button>
+	<div class="grid grid-cols-2 items-center">
 		<button class="button-link secondary" onclick={() => navigate('now')}>{m.today()}</button>
-		<button class="button-link secondary" onclick={() => navigate('next')}>{m.next()}</button>
 		<Select
 			value={currentView}
 			options={[
@@ -305,10 +299,19 @@
 			]}
 			onchange={({ value }) => changeView(value)} />
 	</div>
-	<strong
-		class="calendar-period"
-		aria-live="polite"
-		aria-label={m.selected_period({ period: selectedPeriod })}>{selectedPeriod}</strong>
+	<div class="calendar-period-navigation">
+		<button
+			class="icon-button"
+			type="button"
+			aria-label={m.previous()}
+			onclick={() => navigate('previous')}><ChevronLeft size={21} /></button>
+		<strong
+			class="calendar-period"
+			aria-live="polite"
+			aria-label={m.selected_period({ period: selectedPeriod })}>{selectedPeriod}</strong>
+		<button class="icon-button" type="button" aria-label={m.next()} onclick={() => navigate('next')}
+			><ChevronRight size={21} /></button>
+	</div>
 	<div class="field" style="min-width: 240px">
 		<span>{m.filter_organization()}</span>
 		<Select

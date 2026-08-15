@@ -1,67 +1,32 @@
 <script lang="ts">
 	import type { Group } from '$lib/api/types';
-	import { localize } from '$lib/i18n';
-	import * as m from '$lib/paraglide/messages';
-	import { Select } from '@svar-ui/svelte-core';
+	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 
 	let {
 		title,
 		items,
 		options,
-		placeholder,
+		inheritDescendants = false,
 		onadd,
 		onremove
 	}: {
 		title: string;
 		items: Group[];
 		options: Group[];
-		placeholder: string;
+		inheritDescendants?: boolean;
 		onadd: (value: string) => void | Promise<void>;
 		onremove: (value: string) => void | Promise<void>;
 	} = $props();
-	let value = $state('');
-	let busy = $state(false);
-
-	async function add(): Promise<void> {
-		if (!value) return;
-		busy = true;
-		try {
-			await onadd(value);
-			value = '';
-		} finally {
-			busy = false;
-		}
+	async function update(ids: string[]): Promise<void> {
+		const current = new Set(items.map((item) => item.id));
+		for (const id of ids.filter((id) => !current.has(id))) await onadd(id);
+		for (const id of [...current].filter((id) => !ids.includes(id))) await onremove(id);
 	}
 </script>
 
-<div>
-	<h3 class="section-title">{title}</h3>
-	<div class="toolbar">
-		<div class="field" style="flex: 1">
-			<span>{placeholder}</span>
-			<Select
-				{value}
-				options={options
-					.filter((group) => !items.some((item) => item.id === group.id))
-					.map((group) => ({ id: group.id, label: localize(group.name, group.path) }))}
-				onchange={({ value: next }) => (value = String(next))} />
-		</div>
-		<button
-			class="button-link secondary"
-			type="button"
-			disabled={busy || !value}
-			onclick={() => void add()}>{m.add()}</button>
-	</div>
-	{#if items.length === 0}<p class="muted">{m.empty()}</p>{:else}<ul class="list">
-			{#each items as item (item.id)}<li>
-					<div class="list-main">
-						<strong>{localize(item.name, item.path)}</strong><span>{item.path}</span>
-					</div>
-					<button
-						class="button-link secondary danger-button"
-						type="button"
-						disabled={busy}
-						onclick={() => void onremove(item.id)}>{m.remove()}</button>
-				</li>{/each}
-		</ul>{/if}
-</div>
+<GroupTreePicker
+	{title}
+	groups={options}
+	selectedIds={items.map((item) => item.id)}
+	{inheritDescendants}
+	onchange={update} />

@@ -25,21 +25,22 @@ export async function resizeImage(file: File, maxDimension = 1920): Promise<File
 }
 
 export async function uploadImage(file: File): Promise<string> {
-	const resized = await resizeImage(file);
-	const allowance = responseData(
-		await api.POST('/admin/upload-image', { body: { extension: 'webp' } })
-	);
-	if (resized.size > allowance.max_size_bytes) throw new Error('The resized image is too large');
+	const upload = file.size < 1_000_000 ? file : await resizeImage(file);
+	const extension = upload.name.split('.').pop()?.toLowerCase() ?? '';
+	if (!['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(extension))
+		throw new Error('Unsupported image format');
+	const allowance = responseData(await api.POST('/admin/upload-image', { body: { extension } }));
+	if (upload.size > allowance.max_size_bytes) throw new Error('The image is too large');
 
 	const form = new FormData();
 	for (const [key, value] of Object.entries(allowance.fields)) form.append(key, value);
 	for (const [key, value] of Object.entries(allowance.dynamic_fields)) {
 		// A range constrains the policy; it is not an S3 multipart form field.
 		if (key.toLowerCase() === 'content-length-range') continue;
-		form.append(key, key.toLowerCase() === 'content-type' ? resized.type : value);
+		form.append(key, key.toLowerCase() === 'content-type' ? upload.type : value);
 	}
 	form.set('key', allowance.key);
-	form.append('file', resized);
+	form.append('file', upload);
 	const result = await fetch(allowance.url, { method: 'POST', body: form });
 	if (!result.ok) throw new Error(`Image upload failed (${result.status})`);
 	toasts.show('success', m.image_ready());

@@ -22,6 +22,7 @@ body {
 	margin: 0;
 	min-width: 320px;
 	min-height: 100vh;
+	line-height: 1.55;
 }
 button,
 input,
@@ -35,6 +36,7 @@ a {
 
 .app-frame {
 	min-height: 100vh;
+	line-height: 1.55;
 }
 .sidebar {
 	position: fixed;
@@ -125,32 +127,12 @@ a {
 	font-size: clamp(1.9rem, 3vw, 2.7rem);
 	letter-spacing: -0.045em;
 }
-.statistics-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-	gap: 14px;
-}
-.statistic-row {
-	display: grid;
-	gap: 6px;
-}
-.statistic-track {
-	height: 9px;
+.purchase-grid {
+	height: min(420px, 65vh);
+	min-height: 220px;
 	overflow: hidden;
-	border-radius: 999px;
-	background: #303632;
-}
-.statistic-track span {
-	display: block;
-	height: 100%;
-	border-radius: inherit;
-	background: #8fa69a;
-}
-.answer-list {
-	max-height: 15rem;
-	margin: 0;
-	padding-left: 1.25rem;
-	overflow: auto;
+	border: 1px solid #303631;
+	border-radius: 12px;
 }
 .eyebrow {
 	margin: 0;
@@ -245,6 +227,7 @@ a {
 .contact-inputs {
 	display: grid;
 	grid-template-columns: minmax(120px, 0.65fr) minmax(0, 1.5fr);
+	align-items: center;
 	gap: 8px;
 }
 .localized-field-pair {
@@ -332,8 +315,69 @@ a {
 	color: #c7ccc9;
 	font-weight: 700;
 }
+.addon-panel {
+	margin-top: 0;
+	padding: 0;
+	border: 1px solid #303531;
+	border-radius: 13px;
+	background: #171a18;
+}
+.addon-panel > summary,
+.option-panel > summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 15px 17px;
+}
+.addon-panel > summary::marker,
+.option-panel > summary::marker,
+.addon-panel > summary::-webkit-details-marker,
+.option-panel > summary::-webkit-details-marker {
+	display: none;
+	content: '';
+}
+.collapse-summary-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+.collapse-arrow {
+	flex: 0 0 auto;
+	transition: transform 160ms ease;
+}
+.addon-panel[open] > summary .collapse-arrow,
+.option-panel[open] > summary .collapse-arrow {
+	transform: rotate(90deg);
+}
+.addon-panel > .advanced-content,
+.option-content {
+	margin: 0;
+	padding: 4px 17px 17px;
+}
+.option-panel {
+	padding: 0;
+}
+.addon-actions {
+	justify-content: flex-end;
+}
 .advanced-content {
 	margin-top: 16px;
+}
+.activity-editor-tabs li {
+	padding: 0;
+}
+.activity-editor-tabs button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 10px 12px;
+	border: 0;
+	color: inherit;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
 }
 .section-heading {
 	margin-bottom: 18px;
@@ -542,6 +586,160 @@ a {
 	font-weight: 750;
 	text-align: center;
 }
+.calendar-period-navigation {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+}
+.calendar-period-navigation .icon-button {
+	color: #d7dcd9;
+	border: 1px solid #39403c;
+	border-radius: 8px;
+}
+.edit-page-header {
+	position: sticky;
+	top: 0;
+	z-index: 15;
+	padding-block: 12px;
+	isolation: isolate;
+}
+.edit-page-header::before {
+	position: absolute;
+	z-index: -1;
+	inset: 0 -20px -40px;
+	content: '';
+	pointer-events: none;
+	-webkit-mask: linear-gradient(to bottom, #000 0, #000 calc(100% - 40px), transparent 100%);
+	mask: linear-gradient(to bottom, #000 0, #000 calc(100% - 40px), transparent 100%);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
+}
+.combo-user {
+	display: grid;
+	gap: 2px;
+}
+.combo-user code,
+.group-tree-picker small {
+	display: block;
+	color: #969d98;
+	font-size: 0.75rem;
+}
+.user-email-invite {
+	margin-top: 10px;
+}
+.group-icon {
+	display: inline-grid;
+	flex: 0 0 var(--group-icon-size);
+	width: var(--group-icon-size);
+	height: var(--group-icon-size);
+	place-items: center;
+	overflow: hidden;
+	border: 1px solid #3b423d;
+	border-radius: 8px;
+	color: #aeb6b1;
+	background: #202521;
+}
+.group-icon img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.group-list-name {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.group-list-name > div {
+	display: grid;
+}
+.group-admin-row {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	min-width: 0;
+	padding: 10px 12px;
+}
+.wizard-steps {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 8px;
+	margin: 0 0 22px;
+	padding: 0;
+	list-style: none;
+}
+.wizard-steps li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	border: 1px solid #303631;
+	border-radius: 10px;
+	color: #969d98;
+	background: rgb(28 32 29 / 70%);
+}
+.wizard-steps li span {
+	display: grid;
+	width: 24px;
+	height: 24px;
+	place-items: center;
+	border-radius: 50%;
+	background: #303631;
+}
+.wizard-steps li.active {
+	border-color: #718078;
+	color: #f0f2f1;
+}
+.wizard-steps li.complete span {
+	color: #111412;
+	background: #91a79b;
+}
+.wizard-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 18px;
+}
+.preserve-lines {
+	margin-block: 12px 20px;
+	line-height: 1.9;
+	white-space: pre-line;
+}
+.editor-action-dock {
+	position: sticky;
+	z-index: 14;
+	bottom: 18px;
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	width: max-content;
+	max-width: 100%;
+	margin: 24px 0 0 auto;
+	padding: 9px;
+	border: 1px solid rgb(75 84 78 / 80%);
+	border-radius: 13px;
+	background: rgb(25 29 26 / 78%);
+	box-shadow: 0 12px 32px rgb(0 0 0 / 38%);
+	-webkit-backdrop-filter: blur(14px);
+	backdrop-filter: blur(14px);
+}
+.activity-title-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.activity-title-status .pill {
+	font-size: 0.72rem;
+	letter-spacing: 0;
+}
+@media (max-width: 760px) {
+	.wizard-steps {
+		grid-template-columns: 1fr 1fr;
+	}
+}
 .agenda-grid {
 	display: grid;
 	grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.7fr);
@@ -574,13 +772,21 @@ a {
 .button-link {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 8px;
+	border: 0;
 	border-radius: 9px;
 	padding: 10px 14px;
 	color: white;
 	background: #484f4b;
 	text-decoration: none;
 	font-weight: 650;
+	line-height: 1.35;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.button-link svg {
+	flex: 0 0 auto;
 }
 .button-link.secondary {
 	color: #dfe3e0;
@@ -827,6 +1033,10 @@ a {
 	.page-header {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.page-header > .button-link,
+	.page-header > .toolbar {
+		align-self: flex-start;
 	}
 	.grid-2,
 	.grid-3,

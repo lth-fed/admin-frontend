@@ -32,6 +32,16 @@ export function isDietaryPreferencesAddon(addon: TicketAddon): boolean {
 	);
 }
 
+export function hasDietaryPreferencesAddon(addons: TicketAddon[]): boolean {
+	return addons.some(isDietaryPreferencesAddon);
+}
+
+/** Adds or removes the standard dietary question without touching custom addons. */
+export function setDietaryPreferencesAddon(addons: TicketAddon[], enabled: boolean): TicketAddon[] {
+	const withoutDietary = addons.filter((addon) => !isDietaryPreferencesAddon(addon));
+	return enabled ? [...withoutDietary, createDietaryPreferencesAddon()] : withoutDietary;
+}
+
 function addonsWithDietaryPreferencesDefault(addons: TicketAddon[]): TicketAddon[] {
 	return addons.length > 0 ? addons : [createDietaryPreferencesAddon()];
 }

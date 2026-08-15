@@ -4,6 +4,7 @@
 	import type { Pathname } from '$app/types';
 	import {
 		addActivityVerifier,
+		deleteNotification,
 		downloadActivityReport,
 		getActivity,
 		getTicketKind,
@@ -11,11 +12,14 @@
 		inviteActivityHost,
 		listActivityTicketKinds,
 		listGroupTree,
+		listNotifications,
 		listPendingActivityHosts,
 		listPurchasedTickets,
 		listActivityVerifiers,
 		removeActivityVerifier,
-		saveActivity
+		saveActivity,
+		saveNotification,
+		saveTicketKind
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type {
@@ -24,33 +28,30 @@
 		ExternalSaleCategory,
 		Group,
 		PutActivity,
+		PutTicketNotification,
 		PurchasedTicket,
 		ReportRequest,
-		TicketKind
+		TicketKind,
+		TicketNotification
 	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
+	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
+	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
+	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
-	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
-	import LocalizedField from '$lib/components/LocalizedField.svelte';
+	import GroupIcon from '$lib/components/GroupIcon.svelte';
+	import GroupTreeExplorer from '$lib/components/GroupTreeExplorer.svelte';
+	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
+	import NotificationFields from '$lib/components/NotificationFields.svelte';
+	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { dateTime, kronor, localize } from '$lib/i18n';
 	import { uploadImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
-	import {
-		ArrowLeft,
-		ChevronDown,
-		ChevronRight,
-		Copy,
-		Download,
-		Eye,
-		EyeOff,
-		Plus,
-		Send,
-		Trash2
-	} from '@lucide/svelte';
+	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
 
 	const I32_MAX = 2_147_483_647;
@@ -81,19 +82,29 @@
 	let invitingHostId = $state<string | null>(null);
 	let verifiers = $state<string[]>([]);
 	let userSuggestions = $state<AdminUser[]>([]);
-	let addonStatistics = $state<AddonStatistic[]>([]);
-	const expandedHostGroups = new SvelteSet<string>();
-	type AddonStatistic = {
-		key: string;
-		name: TicketKind['available_addons'][number]['name'];
-		answers: number;
-		options: Array<{
-			key: string;
-			name: TicketKind['available_addons'][number]['name'];
-			count: number;
-		}>;
-		texts: string[];
-	};
+	let detailedTicketKinds = $state<TicketKind[]>([]);
+	let purchases = $state<PurchasedTicket[]>([]);
+	let editorTab = $state(0);
+	let visibilityGroupIds = $state<string[]>([]);
+	let visibilitySaving = $state(false);
+	let notificationSaving = $state(false);
+	let deletingNotificationKey = $state<string | null>(null);
+	let notificationTarget = $state('$all');
+	let notificationKind = $state('reminder');
+	let notificationDraft = $state<PutTicketNotification>({
+		title: { sv: '', en: '' },
+		content: { sv: '', en: '' },
+		send_at: new Date(Date.now() + 86_400_000).toISOString()
+	});
+	let scheduledNotifications = $state<
+		Array<TicketNotification & { ticketKindId: string; ticketName: string }>
+	>([]);
+	const editorTabs = [
+		m.creation_step_details(),
+		m.creation_step_logistics(),
+		m.creation_step_tickets(),
+		m.creation_step_notifications()
+	];
 	let form = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
@@ -115,32 +126,12 @@
 		isNew ||
 			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
 	);
-	const hostTreeRows = $derived.by(() => {
-		const sorted = [...groups].sort((a, b) => a.path.localeCompare(b.path));
-		const groupsByPath = new Map(sorted.map((group) => [group.path, group]));
-		const parentPaths = new Set(
-			sorted.map((group) => group.path.slice(0, group.path.lastIndexOf('.'))).filter(Boolean)
-		);
-
-		return sorted
-			.filter((group) => {
-				const parts = group.path.split('.');
-				for (let index = 1; index < parts.length; index += 1) {
-					const ancestor = groupsByPath.get(parts.slice(0, index).join('.'));
-					if (ancestor && !expandedHostGroups.has(ancestor.id)) return false;
-				}
-				return true;
-			})
-			.map((group) => ({
-				group,
-				depth: group.path
-					.split('.')
-					.slice(0, -1)
-					.filter((_, index, parts) => groupsByPath.has([...parts.slice(0, index + 1)].join('.')))
-					.length,
-				hasChildren: parentPaths.has(group.path)
-			}));
-	});
+	const purchasableTickets = $derived(
+		tickets.filter(
+			(ticket) =>
+				detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id)?.max_tickets !== 0
+		)
+	);
 
 	$effect(() => {
 		void load();
@@ -202,12 +193,32 @@
 				east = activity.location.coordinate_wgs84?.east.toString() ?? '';
 				tickets = activityTickets;
 				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
-				const purchases = mayEdit
+				const notificationsByKind = mayEdit
+					? await Promise.all(
+							kinds.map(async (kind) => ({
+								kind,
+								notifications: await listNotifications(kind.ticket_kind_id)
+							}))
+						)
+					: [];
+				purchases = mayEdit
 					? (
 							await Promise.all(activityTickets.map((ticket) => listPurchasedTickets(ticket.id)))
 						).flat()
 					: [];
-				addonStatistics = buildAddonStatistics(kinds, purchases);
+				detailedTicketKinds = kinds;
+				visibilityGroupIds = [
+					...new Set(
+						kinds.filter((kind) => kind.max_tickets === 0).flatMap((kind) => kind.allowed_group_ids)
+					)
+				];
+				scheduledNotifications = notificationsByKind.flatMap(({ kind, notifications }) =>
+					notifications.map((notification) => ({
+						...notification,
+						ticketKindId: kind.ticket_kind_id,
+						ticketName: localize(kind.ticket_kind_name)
+					}))
+				);
 				minimumCapacity = kinds.reduce(
 					(total, kind) => total + kind.reserved_or_purchased_tickets,
 					0
@@ -237,51 +248,7 @@
 
 	function updateContactKind(value: string | number): void {
 		contactKind = value === 'tel' ? 'tel' : 'mailto';
-		form.responsible_contact = `${contactKind}:`;
-	}
-
-	function normalizedAddonName(name: { sv?: string; en?: string }): string {
-		return (name.sv || name.en || '')
-			.normalize('NFKD')
-			.replace(/[\u0300-\u036f]/g, '')
-			.toLocaleLowerCase('sv')
-			.replace(/[^a-z0-9]/g, '');
-	}
-
-	function buildAddonStatistics(
-		kinds: TicketKind[],
-		purchases: PurchasedTicket[]
-	): AddonStatistic[] {
-		const kindsById = new SvelteMap(kinds.map((kind) => [kind.ticket_kind_id, kind]));
-		const statistics = new SvelteMap<string, AddonStatistic>();
-		for (const ticket of purchases) {
-			const kind = kindsById.get(ticket.ticket_kind_id);
-			if (!kind) continue;
-			for (const answer of ticket.addons) {
-				const addon = kind.available_addons.find((candidate) => candidate.id === answer.addon_id);
-				if (!addon) continue;
-				const key = normalizedAddonName(addon.name);
-				const statistic = statistics.get(key) ?? {
-					key,
-					name: addon.name,
-					answers: 0,
-					options: [],
-					texts: []
-				};
-				statistic.answers += 1;
-				for (const selected of answer.selected_options) {
-					const option = addon.options.find((candidate) => candidate.idx === selected);
-					if (!option) continue;
-					const optionKey = normalizedAddonName(option.name);
-					const existing = statistic.options.find((candidate) => candidate.key === optionKey);
-					if (existing) existing.count += 1;
-					else statistic.options.push({ key: optionKey, name: option.name, count: 1 });
-				}
-				if (answer.selected_text.trim()) statistic.texts.push(answer.selected_text.trim());
-				statistics.set(key, statistic);
-			}
-		}
-		return [...statistics.values()].sort((left, right) => left.key.localeCompare(right.key));
+		form.responsible_contact = `${contactKind}:${contactValue}`;
 	}
 
 	function updateContactValue(value: string): void {
@@ -352,16 +319,6 @@
 			: form.host_ids.filter((id) => id !== groupId);
 	}
 
-	function toggleHostBranch(groupId: string): void {
-		if (expandedHostGroups.has(groupId)) expandedHostGroups.delete(groupId);
-		else expandedHostGroups.add(groupId);
-	}
-
-	function updateCreator(groupId: string): void {
-		if (id) return;
-		form.creator_id = groupId;
-	}
-
 	async function inviteHost(groupId: string): Promise<void> {
 		if (!id || savedHostIds.includes(groupId) || pendingHostIds.includes(groupId)) return;
 		invitingHostId = groupId;
@@ -384,6 +341,131 @@
 			verifiers = await listActivityVerifiers(id);
 		} catch (cause) {
 			error = frontendError(cause);
+		}
+	}
+
+	async function refreshNotifications(): Promise<void> {
+		const notificationsByKind = await Promise.all(
+			detailedTicketKinds.map(async (kind) => ({
+				kind,
+				notifications: await listNotifications(kind.ticket_kind_id)
+			}))
+		);
+		scheduledNotifications = notificationsByKind.flatMap(({ kind, notifications }) =>
+			notifications.map((notification) => ({
+				...notification,
+				ticketKindId: kind.ticket_kind_id,
+				ticketName: localize(kind.ticket_kind_name, '').trim() || m.empty_ticket_kind()
+			}))
+		);
+	}
+
+	async function createNotification(): Promise<void> {
+		if (!id || !canEdit || notificationSaving) return;
+		if (
+			!notificationKind.trim() ||
+			!notificationDraft.title.sv.trim() ||
+			!notificationDraft.title.en.trim() ||
+			!notificationDraft.content.sv.trim() ||
+			!notificationDraft.content.en.trim()
+		) {
+			error = `${m.notification_kind()}: ${m.required_fields()}`;
+			toasts.show('error', error);
+			return;
+		}
+		const targetIds =
+			notificationTarget === '$all'
+				? purchasableTickets.map((ticket) => ticket.id)
+				: [notificationTarget];
+		if (targetIds.length === 0) {
+			error = `${m.notification_target()}: ${m.required_fields()}`;
+			toasts.show('error', error);
+			return;
+		}
+		notificationSaving = true;
+		error = null;
+		try {
+			await Promise.all(
+				targetIds.map((ticketKindId) =>
+					saveNotification(ticketKindId, notificationKind.trim(), notificationDraft)
+				)
+			);
+			await refreshNotifications();
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			notificationSaving = false;
+		}
+	}
+
+	async function removeNotification(ticketKindId: string, kind: string): Promise<void> {
+		if (!canEdit || !confirm(m.delete_notification_confirm())) return;
+		const key = `${ticketKindId}-${kind}`;
+		deletingNotificationKey = key;
+		error = null;
+		try {
+			await deleteNotification(ticketKindId, kind);
+			scheduledNotifications = scheduledNotifications.filter(
+				(notification) => notification.ticketKindId !== ticketKindId || notification.kind !== kind
+			);
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			deletingNotificationKey = null;
+		}
+	}
+
+	async function saveVisibilityAccess(): Promise<void> {
+		if (!id || !canEdit) return;
+		visibilitySaving = true;
+		error = null;
+		try {
+			const accessKinds = detailedTicketKinds.filter((kind) => kind.max_tickets === 0);
+			const assigned = new SvelteSet<string>();
+			for (const kind of accessKinds) {
+				const groupId = visibilityGroupIds.find((candidate) => !assigned.has(candidate));
+				if (groupId) assigned.add(groupId);
+				await saveTicketKind(kind.ticket_kind_id, {
+					activity_id: id,
+					name: { sv: 'null', en: 'null' },
+					price: 0,
+					purchasing_available_start: kind.purchasing_available_start,
+					purchasing_available_stop: kind.purchasing_available_stop,
+					max_tickets: 0,
+					min_tickets: 0,
+					allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
+					allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
+					allow_transfer_ticket_bypass_allowed_groups: false,
+					allowed_group_ids: groupId ? [groupId] : [],
+					addons: []
+				});
+			}
+			for (const groupId of visibilityGroupIds.filter((candidate) => !assigned.has(candidate))) {
+				const ticketId = crypto.randomUUID();
+				const now = new Date().toISOString();
+				await saveTicketKind(ticketId, {
+					activity_id: id,
+					name: { sv: 'null', en: 'null' },
+					price: 0,
+					purchasing_available_start: now,
+					purchasing_available_stop: now,
+					max_tickets: 0,
+					min_tickets: 0,
+					allow_transfer_ticket_start: now,
+					allow_transfer_ticket_stop: now,
+					allow_transfer_ticket_bypass_allowed_groups: false,
+					allowed_group_ids: [groupId],
+					addons: []
+				});
+			}
+			toasts.show('success', m.backend_success());
+			await load();
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			visibilitySaving = false;
 		}
 	}
 
@@ -529,14 +611,18 @@
 	}
 </script>
 
-<header class="page-header">
+<header class="page-header edit-page-header">
 	<div>
 		<p class="eyebrow">{m.nav_activities()}</p>
 		<h1>
-			{isNew ? m.new_activity() : canEdit ? m.edit_activity() : m.activity_details()}{form.title
-				.sv || form.title.en
-				? ` · ${localize(form.title)}`
-				: ''}
+			<span class="activity-title-status">
+				<span
+					>{isNew ? m.new_activity() : canEdit ? m.edit_activity() : m.activity_details()}{form
+						.title.sv || form.title.en
+						? ` · ${localize(form.title)}`
+						: ''}</span>
+				{#if form.is_hidden}<span class="pill hidden">{m.not_published()}</span>{/if}
+			</span>
 		</h1>
 	</div>
 	<div class="toolbar">
@@ -560,173 +646,58 @@
 		<p>{m.loading()}</p>
 	</div>
 {:else}
+	<ActivityTabs
+		labels={editorTabs}
+		active={editorTab}
+		accessibleLabel={m.edit_activity()}
+		onchange={(index) => (editorTab = index)} />
 	<form class="stack" novalidate onsubmit={submit}>
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 		{#if !canEdit}<p class="info-banner" role="status">{m.activity_read_only()}</p>{/if}
 		<fieldset class="stack activity-editor-fields" disabled={!canEdit}>
-			<section class="card card-pad">
-				<h2 class="section-title">{m.activity_details()}</h2>
-				<div class="grid-2">
-					<LocalizedField
-						value={form.title}
-						labelSv={m.title_sv()}
-						labelEn={m.title_en()}
-						required
-						onchange={(value) => (form.title = value)} />
-					<LocalizedField
-						value={form.description}
-						labelSv={m.description_sv()}
-						labelEn={m.description_en()}
-						multiline
-						onchange={(value) => (form.description = value)} />
-					<DateTimePicker label={m.start()} value={form.time_start} onchange={updateStart} />
-					<DateTimePicker
-						label={m.end()}
-						value={form.time_end}
-						error={new Date(form.time_end) <= new Date(form.time_start)}
-						onchange={(value) => (form.time_end = value)} />
-					<label class="field"
-						><span>{m.responsible_name()}</span><input
-							required
-							bind:value={form.responsible_name} /></label>
-					<div class="field">
-						<span>{m.responsible_contact()}</span>
-						<div class="contact-inputs">
-							<Select
-								value={contactKind}
-								options={[
-									{ id: 'mailto', label: m.email() },
-									{ id: 'tel', label: m.telephone() }
-								]}
-								onchange={({ value }) => updateContactKind(value)} />
-							<input
-								required
-								type={contactKind === 'mailto' ? 'email' : 'tel'}
-								placeholder={contactKind === 'mailto' ? 'admin@example.org' : '+46 70 123 45 67'}
-								value={contactValue}
-								oninput={(event) => updateContactValue(event.currentTarget.value)} />
+			{#if editorTab === 0}<ActivityDetailsFields
+					value={form}
+					{groups}
+					{adminGroupIds}
+					creatorReadonly={!isNew}
+					creatorName={localize(creatorGroup?.name, creatorGroup?.path ?? form.creator_id)}
+					{contactKind}
+					{contactValue}
+					{imageUrl}
+					{uploading}
+					onchange={(value) => (form = value)}
+					onstartchange={updateStart}
+					oncontactkindchange={updateContactKind}
+					oncontactvaluechange={updateContactValue}
+					onimagechange={(event) => void chooseImage(event)} />
+			{/if}
+
+			{#if editorTab === 1}<ActivityLocationFields
+					value={form.location}
+					{north}
+					{east}
+					onchange={(location) => (form = { ...form, location })}
+					onnorthchange={(value) => (north = value)}
+					oneastchange={(value) => (east = value)} />
+
+				<section class="card card-pad">
+					<div>
+						<div class="section-heading">
+							<h2 class="section-title">{m.hosts()}</h2>
+							<span class="pill">{m.hosts_selected({ count: form.host_ids.length })}</span>
 						</div>
-					</div>
-					<div class="field">
-						<span>{m.creator()}</span>
-						{#if isNew}
-							<Select
-								value={form.creator_id}
-								options={groups
-									.filter((group) => adminGroupIds.includes(group.id))
-									.map((group) => ({
-										id: group.id,
-										label: localize(group.name, group.path)
-									}))}
-								onchange={({ value }) => updateCreator(String(value))} />
-						{:else}
-							<div class="readonly-value">
-								<strong
-									>{localize(creatorGroup?.name, creatorGroup?.path ?? form.creator_id)}</strong>
-								<small>{m.creator_immutable()}</small>
-							</div>
-						{/if}
-					</div>
-				</div>
-				<details class="advanced-panel">
-					<summary>{m.advanced()}</summary>
-					<div class="stack advanced-content">
-						<label class="switch-field">
-							<Switch value={limitCapacity} onchange={({ value }) => toggleCapacityLimit(value)} />
-							<span>{m.limit_max_tickets()}</span>
-						</label>
-						{#if limitCapacity}
-							<label class="field">
-								<span>{m.activity_capacity()}</span>
-								<small>{m.activity_capacity_help()}</small>
-								<input
-									type="number"
-									min={minimumCapacity}
-									max={I32_MAX - 1}
-									bind:value={form.max_tickets} />
-							</label>
-						{/if}
-						<label class="switch-field" title={m.hide_other_admins_help()}>
-							<Switch
-								value={form.is_hidden_for_other_admins}
-								onchange={({ value }) => (form.is_hidden_for_other_admins = value)} />
-							<span>{m.hide_other_admins()}</span>
-						</label>
-					</div>
-				</details>
-			</section>
-
-			<section class="card card-pad">
-				<div class="section-heading">
-					<h2 class="section-title">{m.location()}</h2>
-					<p class="muted">{m.location_optional()}</p>
-				</div>
-				<div class="grid-2">
-					<LocalizedField
-						value={form.location.name!}
-						labelSv={m.location_sv()}
-						labelEn={m.location_en()}
-						placeholderSv={m.location_placeholder()}
-						placeholderEn={m.location_placeholder()}
-						onchange={(value) => (form.location.name = value)} />
-					<LocalizedField
-						value={form.location.directions!}
-						labelSv={m.directions_sv()}
-						labelEn={m.directions_en()}
-						placeholderSv={m.directions_placeholder()}
-						placeholderEn={m.directions_placeholder()}
-						multiline
-						onchange={(value) => (form.location.directions = value)} />
-					<label class="field"
-						><span>{m.location_url()}</span><input
-							type="url"
-							placeholder="https://maps.google.com/…"
-							bind:value={form.location.url} /></label>
-					<div class="grid-2">
-						<label class="field"
-							><span>{m.latitude()}</span><input
-								type="number"
-								step="any"
-								bind:value={north} /></label
-						><label class="field"
-							><span>{m.longitude()}</span><input
-								type="number"
-								step="any"
-								bind:value={east} /></label>
-					</div>
-				</div>
-			</section>
-
-			<section class="card card-pad grid-2">
-				<div>
-					<div class="section-heading">
-						<h2 class="section-title">{m.hosts()}</h2>
-						<span class="pill">{m.hosts_selected({ count: form.host_ids.length })}</span>
-					</div>
-					<p class="muted host-help">
-						{id ? m.hosts_invitation_help() : m.save_before_inviting_hosts()}
-					</p>
-					<div class="host-tree">
-						{#each hostTreeRows as row (row.group.id)}
-							<div class="host-tree-row" style={`padding-left: ${row.depth * 20 + 8}px`}>
-								{#if row.hasChildren}
-									<button
-										class="tree-toggle"
-										type="button"
-										aria-label={localize(row.group.name, row.group.path)}
-										aria-expanded={expandedHostGroups.has(row.group.id)}
-										onclick={() => toggleHostBranch(row.group.id)}>
-										{#if expandedHostGroups.has(row.group.id)}
-											<ChevronDown size={17} />
-										{:else}
-											<ChevronRight size={17} />
-										{/if}
-									</button>
-								{:else}
-									<span class="tree-toggle-spacer"></span>
-								{/if}
+						<p class="muted host-help">
+							{id ? m.hosts_invitation_help() : m.save_before_inviting_hosts()}
+						</p>
+						<GroupTreeExplorer
+							{groups}
+							revealIds={[form.creator_id, ...savedHostIds, ...pendingHostIds]}>
+							{#snippet children(row)}
 								{#if row.group.id === form.creator_id}
 									<span class="host-tree-label">
+										<GroupIcon
+											url={row.group.logo_url}
+											name={localize(row.group.name, row.group.path)} />
 										{localize(row.group.name, row.group.path)}
 										<span class="pill">{m.creator()}</span>
 									</span>
@@ -739,6 +710,9 @@
 												disabled={!adminGroupIds.includes(row.group.id)}
 												onchange={(event) =>
 													toggleHost(row.group.id, event.currentTarget.checked)} />
+											<GroupIcon
+												url={row.group.logo_url}
+												name={localize(row.group.name, row.group.path)} />
 											<span>{localize(row.group.name, row.group.path)}</span>
 											{#if !adminGroupIds.includes(row.group.id)}
 												<span class="pill">{m.host_remove_own_only()}</span>
@@ -746,11 +720,17 @@
 										</label>
 									{:else if pendingHostIds.includes(row.group.id)}
 										<span class="host-tree-label">
+											<GroupIcon
+												url={row.group.logo_url}
+												name={localize(row.group.name, row.group.path)} />
 											{localize(row.group.name, row.group.path)}
 											<span class="pill">{m.host_invite_pending()}</span>
 										</span>
 									{:else}
 										<div class="host-tree-invite">
+											<GroupIcon
+												url={row.group.logo_url}
+												name={localize(row.group.name, row.group.path)} />
 											<span>{localize(row.group.name, row.group.path)}</span>
 											{#if id}
 												<button
@@ -765,28 +745,35 @@
 										</div>
 									{/if}
 								{/if}
-							</div>
-						{/each}
+							{/snippet}
+						</GroupTreeExplorer>
 					</div>
-				</div>
-				<div>
-					<h2 class="section-title">{m.activity_image()}</h2>
-					{#if imageUrl}
-						<div class="activity-image-preview">
-							<img src={imageUrl} alt={m.current_activity_image()} />
-							<span>{m.current_activity_image()}</span>
-						</div>
-					{/if}
-					<label class="field"
-						><span>{uploading ? m.uploading_image() : m.choose_image()}</span><input
-							type="file"
-							accept="image/jpeg,image/png,image/webp,image/avif"
-							onchange={(event) => void chooseImage(event)} /></label>
-					{#if form.image_id}<p class="success-banner">{m.image_ready()} · {form.image_id}</p>{/if}
-				</div>
-			</section>
+				</section>
+			{/if}
 
-			{#if id}
+			{#if editorTab === 2 && id}
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.visibility_access()}</h2>
+						<p class="muted preserve-lines">{m.activities_details()}</p>
+						<p class="muted">{m.visibility_access_help()}</p>
+					</div>
+					<GroupTreePicker
+						title={m.visibility_access()}
+						{groups}
+						selectedIds={visibilityGroupIds}
+						inheritDescendants
+						disabled={!canEdit}
+						onchange={(ids) => {
+							visibilityGroupIds = ids;
+						}} />
+					{#if canEdit}<button
+							class="button-link secondary"
+							type="button"
+							disabled={visibilitySaving}
+							onclick={() => void saveVisibilityAccess()}>{m.save_visibility_access()}</button
+						>{/if}
+				</section>
 				<section class="card card-pad">
 					<div class="toolbar between">
 						<h2 class="section-title">{m.tickets()}</h2>
@@ -795,10 +782,12 @@
 								><Plus size={17} /> {m.new_ticket()}</a>
 						{/if}
 					</div>
-					{#if tickets.length === 0}<p class="empty-state">{m.empty()}</p>{:else}<ul class="list">
-							{#each tickets as ticket (ticket.id)}<li>
+					{#if purchasableTickets.length === 0}<p class="empty-state">{m.empty()}</p>{:else}<ul
+							class="list">
+							{#each purchasableTickets as ticket (ticket.id)}<li>
 									<div class="list-main">
-										<strong>{localize(ticket.name)}</strong><span
+										<strong>{localize(ticket.name, '').trim() || m.empty_ticket_kind()}</strong
+										><span
 											>{kronor(ticket.price)} · {dateTime(ticket.purchasing_available_start)}</span>
 									</div>
 									{#if canEdit}
@@ -809,50 +798,29 @@
 								</li>{/each}
 						</ul>{/if}
 				</section>
-			{/if}
-
-			{#if id && canEdit}
 				<section class="card card-pad stack">
-					<div>
-						<h2 class="section-title">{m.addon_statistics()}</h2>
-						<p class="muted">{m.addon_statistics_help()}</p>
-					</div>
-					{#if addonStatistics.length === 0}
-						<p class="empty-state">{m.no_addon_answers()}</p>
-					{:else}
-						<div class="statistics-grid">
-							{#each addonStatistics as statistic (statistic.key)}
-								<article class="nested-card stack">
-									<div class="toolbar between">
-										<h3 class="section-title">{localize(statistic.name)}</h3>
-										<span class="pill">{m.answer_count({ count: statistic.answers })}</span>
-									</div>
-									{#each statistic.options as option (option.key)}
-										<div class="statistic-row">
-											<div class="toolbar between">
-												<span>{localize(option.name)}</span><strong>{option.count}</strong>
-											</div>
-											<div class="statistic-track">
-												<span style={`width: ${(option.count / statistic.answers) * 100}%`}></span>
-											</div>
-										</div>
-									{/each}
-									{#if statistic.texts.length > 0}
-										<h4 class="section-title">{m.text_answers()}</h4>
-										<ul class="answer-list">
-											{#each statistic.texts as answer, answerIndex (`${statistic.key}-${answerIndex}`)}
-												<li>{answer}</li>
-											{/each}
-										</ul>
-									{/if}
-								</article>
-							{/each}
-						</div>
-					{/if}
+					<h2 class="section-title">{m.advanced()}</h2>
+					<label class="switch-field">
+						<Switch value={limitCapacity} onchange={({ value }) => toggleCapacityLimit(value)} />
+						<span>{m.limit_max_tickets()}</span>
+					</label>
+					{#if limitCapacity}<label class="field"
+							><span>{m.activity_capacity()}</span><small>{m.activity_capacity_help()}</small><input
+								type="number"
+								min={minimumCapacity}
+								max={I32_MAX - 1}
+								bind:value={form.max_tickets} /></label
+						>{/if}
+					<label class="switch-field" title={m.hide_other_admins_help()}
+						><Switch
+							value={form.is_hidden_for_other_admins}
+							onchange={({ value }) => (form.is_hidden_for_other_admins = value)} /><span
+							>{m.hide_other_admins()}</span
+						></label>
 				</section>
 			{/if}
 
-			{#if id && canEdit}
+			{#if editorTab === 2 && id && canEdit}
 				<section class="card card-pad stack">
 					<p class="muted">{m.activity_verifiers_help()}</p>
 					<UserList
@@ -865,9 +833,94 @@
 						onadd={(userId) => changeVerifier(() => addActivityVerifier(id!, userId))}
 						onremove={(userId) => changeVerifier(() => removeActivityVerifier(id!, userId))} />
 				</section>
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.addon_statistics()}</h2>
+						<p class="muted">{m.addon_statistics_help()}</p>
+					</div>
+					<PurchaseGrid
+						{purchases}
+						kinds={detailedTicketKinds}
+						users={userSuggestions}
+						view="breakdown" />
+				</section>
+
+				<section class="card card-pad stack">
+					<h2 class="section-title">
+						{m.purchasers()} <span class="pill">{purchases.length}</span>
+					</h2>
+					<PurchaseGrid {purchases} kinds={detailedTicketKinds} users={userSuggestions} />
+				</section>
 			{/if}
 
-			{#if id && canEdit}
+			{#if editorTab === 3 && id && canEdit}
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.scheduled_notifications()}</h2>
+						<p class="muted">{m.default_release_notifications()}</p>
+						<p class="muted">{m.notification_recipients_help()}</p>
+					</div>
+					{#if scheduledNotifications.length === 0}<p class="empty-state">{m.empty()}</p>{:else}<ul
+							class="list">
+							{#each scheduledNotifications as notification (`${notification.ticketKindId}-${notification.kind}`)}<li>
+									<div class="list-main">
+										<strong>{localize(notification.title, notification.kind)}</strong><span
+											>{notification.ticketName} · {notification.kind} · {dateTime(
+												notification.send_at
+											)}</span
+										><span>{localize(notification.content)}</span>
+									</div>
+									<button
+										class="icon-button danger-button"
+										type="button"
+										disabled={deletingNotificationKey ===
+											`${notification.ticketKindId}-${notification.kind}`}
+										aria-label={m.delete()}
+										onclick={() =>
+											void removeNotification(notification.ticketKindId, notification.kind)}>
+										<Trash2 size={16} />
+									</button>
+								</li>{/each}
+						</ul>{/if}
+				</section>
+				<section class="card card-pad stack">
+					<div class="toolbar between">
+						<h2 class="section-title">{m.add_notification()}</h2>
+					</div>
+					<label class="field notification-target-field">
+						<span>{m.notification_target()}</span>
+						<Select
+							value={notificationTarget}
+							options={[
+								{ id: '$all', label: m.all_ticket_kinds() },
+								...purchasableTickets.map((ticket) => ({
+									id: ticket.id,
+									label: localize(ticket.name, '').trim() || m.empty_ticket_kind()
+								}))
+							]}
+							onchange={({ value }) => (notificationTarget = String(value))} />
+					</label>
+					<div class="grid-2">
+						<NotificationFields
+							kind={notificationKind}
+							value={notificationDraft}
+							onkindchange={(kind) => (notificationKind = kind)}
+							onchange={(value) => (notificationDraft = value)} />
+					</div>
+					<div class="toolbar">
+						<button
+							class="button-link"
+							type="button"
+							disabled={notificationSaving || purchasableTickets.length === 0}
+							onclick={() => void createNotification()}>
+							<Plus size={16} />
+							{notificationSaving ? m.saving() : m.save_notification()}
+						</button>
+					</div>
+				</section>
+			{/if}
+
+			{#if editorTab === 2 && id && canEdit}
 				<section class="card card-pad stack">
 					<div>
 						<h2 class="section-title">{m.sales_report()}</h2>
@@ -907,7 +960,9 @@
 										label={m.external_sale_total()}
 										value={sale.total}
 										onchange={(value) =>
-											updateExternalSale(index, { total: value ?? Number.NaN })} />
+											updateExternalSale(index, {
+												total: value ?? Number.NaN
+											})} />
 									<button
 										class="icon-button danger-button"
 										type="button"
@@ -933,7 +988,7 @@
 				</section>
 			{/if}
 
-			<div class="toolbar">
+			<div class="editor-action-dock">
 				<button class="button-link" type="submit" disabled={saving || uploading}
 					>{saving ? m.saving() : m.save()}</button>
 				<button
