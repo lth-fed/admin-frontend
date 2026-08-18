@@ -7,12 +7,13 @@ import type {
 	ActivityTicketKind,
 	BriefActivity,
 	Group,
+	GroupNotification,
 	Me,
 	PurchasedTicket,
 	PutActivity,
 	PutGroup,
+	PutNotification,
 	PutTicketKind,
-	PutTicketNotification,
 	ReportRequest,
 	TicketKind,
 	TicketNotification
@@ -147,17 +148,6 @@ export async function listAddonNames(): Promise<PutTicketKind['name'][]> {
 	return responseData(await api.GET('/admin/addon-names'));
 }
 
-export async function getNotification(
-	ticketKindId: string,
-	kind: string
-): Promise<TicketNotification> {
-	return responseData(
-		await api.GET('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
-			params: { path: { ticket_kind_id: ticketKindId, kind } }
-		})
-	);
-}
-
 export async function listNotifications(ticketKindId: string): Promise<TicketNotification[]> {
 	return responseData(
 		await api.GET('/admin/ticket-kinds/{ticket_kind_id}/notifications', {
@@ -169,7 +159,7 @@ export async function listNotifications(ticketKindId: string): Promise<TicketNot
 export async function saveNotification(
 	ticketKindId: string,
 	kind: string,
-	body: PutTicketNotification
+	body: PutNotification
 ): Promise<TicketNotification> {
 	return mutation(
 		await api.PUT('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
@@ -198,6 +188,35 @@ export async function saveGroup(id: string, body: PutGroup): Promise<void> {
 export async function deleteGroup(groupId: string): Promise<void> {
 	mutation(
 		await api.DELETE('/admin/groups/{group_id}', { params: { path: { group_id: groupId } } })
+	);
+}
+
+export async function listGroupNotifications(groupId: string): Promise<GroupNotification[]> {
+	return responseData(
+		await api.GET('/admin/groups/{group_id}/notifications', {
+			params: { path: { group_id: groupId } }
+		})
+	);
+}
+
+export async function saveGroupNotification(
+	groupId: string,
+	id: string,
+	body: PutNotification
+): Promise<GroupNotification> {
+	return mutation(
+		await api.PUT('/admin/groups/{group_id}/notifications/{id}', {
+			params: { path: { group_id: groupId, id } },
+			body
+		})
+	);
+}
+
+export async function deleteGroupNotification(groupId: string, id: string): Promise<void> {
+	mutation(
+		await api.DELETE('/admin/groups/{group_id}/notifications/{id}', {
+			params: { path: { group_id: groupId, id } }
+		})
 	);
 }
 

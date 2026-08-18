@@ -10,6 +10,8 @@
 		labelEn,
 		multiline = false,
 		required = false,
+		errorSv = false,
+		errorEn = false,
 		placeholderSv,
 		placeholderEn,
 		suggestions = [],
@@ -20,6 +22,8 @@
 		labelEn: string;
 		multiline?: boolean;
 		required?: boolean;
+		errorSv?: boolean;
+		errorEn?: boolean;
 		placeholderSv?: string;
 		placeholderEn?: string;
 		suggestions?: Localized[];
@@ -51,17 +55,19 @@
 </script>
 
 <div class="localized-field-pair">
-	<label class="field">
+	<label class:field-error={errorSv} class="field">
 		<span>{labelSv}</span>
 		{#if multiline}
 			<textarea
 				{required}
+				aria-invalid={errorSv}
 				placeholder={placeholderSv}
 				value={value.sv ?? ''}
 				oninput={(event) => updateSwedish(event.currentTarget.value)}></textarea>
 		{:else}
 			<input
 				{required}
+				aria-invalid={errorSv}
 				list={suggestions.length ? swedishSuggestions : undefined}
 				placeholder={placeholderSv}
 				value={value.sv ?? ''}
@@ -79,11 +85,12 @@
 			<span>{m.override_english()}</span>
 		</label>
 		{#if overrideEnglish}
-			<label class="field localized-english">
+			<label class:field-error={errorEn} class="field localized-english">
 				<span class="visually-hidden">{labelEn}</span>
 				{#if multiline}
 					<textarea
 						{required}
+						aria-invalid={errorEn}
 						aria-label={labelEn}
 						placeholder={placeholderEn}
 						value={value.en ?? ''}
@@ -91,6 +98,7 @@
 				{:else}
 					<input
 						{required}
+						aria-invalid={errorEn}
 						list={suggestions.length ? englishSuggestions : undefined}
 						aria-label={labelEn}
 						placeholder={placeholderEn}

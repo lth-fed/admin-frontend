@@ -6,11 +6,13 @@
 		label,
 		value,
 		optional = false,
+		error = false,
 		onchange
 	}: {
 		label: string;
 		value: number | undefined;
 		optional?: boolean;
+		error?: boolean;
 		onchange: (value: number | undefined) => void;
 	} = $props();
 
@@ -40,7 +42,7 @@
 	let focused = $state(false);
 	let draft = $state('');
 	const parsed = $derived(parseKronor(draft));
-	const invalid = $derived(!parsed.valid || (!optional && parsed.value === undefined));
+	const invalid = $derived(error || !parsed.valid || (!optional && parsed.value === undefined));
 
 	$effect.pre(() => {
 		if (!focused && (value === undefined || Number.isSafeInteger(value))) {

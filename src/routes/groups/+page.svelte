@@ -53,12 +53,15 @@
 </header>
 
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}
-<section class="card card-pad">
+<section>
 	{#if loading}<div class="loader"></div>{:else if groups.length === 0}<p class="empty-state">
 			{m.empty()}
 		</p>{:else}
 		<div class="group-admin-tree">
-			<GroupTreeExplorer {groups} revealIds={adminGroupIds}>
+			<GroupTreeExplorer
+				{groups}
+				revealIds={adminGroupIds}
+				storageKey="fed-admin:group-tree-expanded">
 				{#snippet children(row)}
 					{@const group = row.group}
 					<article class="group-admin-row" class:administered={isDirectAdmin(group)}>

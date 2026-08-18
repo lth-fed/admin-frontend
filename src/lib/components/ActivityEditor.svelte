@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import type { Pathname } from '$app/types';
+	import { activityTabIndex, activityTabUrl, isActivityTabNavigation } from '$lib/activity-tabs';
 	import {
 		addActivityVerifier,
 		deleteNotification,
@@ -28,7 +30,7 @@
 		ExternalSaleCategory,
 		Group,
 		PutActivity,
-		PutTicketNotification,
+		PutNotification,
 		PurchasedTicket,
 		ReportRequest,
 		TicketKind,
@@ -46,9 +48,10 @@
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
-	import { dateTime, kronor, localize } from '$lib/i18n';
+	import { copiedLocalizedTitle, dateTime, kronor, localize } from '$lib/i18n';
 	import { uploadImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
+	import { copyTicketAddons } from '$lib/ticket-presets';
 	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -64,6 +67,7 @@
 	let reporting = $state(false);
 	let uploading = $state(false);
 	let error = $state<string | null>(null);
+	let invalidField = $state<string | null>(null);
 	let reportError = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
@@ -84,14 +88,14 @@
 	let userSuggestions = $state<AdminUser[]>([]);
 	let detailedTicketKinds = $state<TicketKind[]>([]);
 	let purchases = $state<PurchasedTicket[]>([]);
-	let editorTab = $state(0);
+	let editorTab = $state(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
 	let visibilitySaving = $state(false);
 	let notificationSaving = $state(false);
 	let deletingNotificationKey = $state<string | null>(null);
 	let notificationTarget = $state('$all');
 	let notificationKind = $state('reminder');
-	let notificationDraft = $state<PutTicketNotification>({
+	let notificationDraft = $state<PutNotification>({
 		title: { sv: '', en: '' },
 		content: { sv: '', en: '' },
 		send_at: new Date(Date.now() + 86_400_000).toISOString()
@@ -99,6 +103,10 @@
 	let scheduledNotifications = $state<
 		Array<TicketNotification & { ticketKindId: string; ticketName: string }>
 	>([]);
+	let savedActivitySnapshot = $state('');
+	let savedVisibilitySnapshot = $state('');
+	let savedNotificationSnapshot = $state('');
+	let allowNavigation = $state(false);
 	const editorTabs = [
 		m.creation_step_details(),
 		m.creation_step_logistics(),
@@ -132,10 +140,46 @@
 				detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id)?.max_tickets !== 0
 		)
 	);
+	const hasUnsavedChanges = $derived(
+		(savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot) ||
+			(savedVisibilitySnapshot !== '' && serializeVisibility() !== savedVisibilitySnapshot) ||
+			(savedNotificationSnapshot !== '' && serializeNotification() !== savedNotificationSnapshot)
+	);
+
+	beforeNavigate(({ cancel, from, to, willUnload }) => {
+		if (!hasUnsavedChanges || allowNavigation) return;
+		if (isActivityTabNavigation(from?.url ?? null, to?.url ?? null)) return;
+		if (willUnload) {
+			cancel();
+			return;
+		}
+		if (!confirm(m.unsaved_changes())) cancel();
+	});
 
 	$effect(() => {
 		void load();
 	});
+
+	$effect(() => {
+		editorTab = activityTabIndex(page.url);
+	});
+
+	function changeEditorTab(index: number): void {
+		if (index === editorTab) return;
+		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+	}
+
+	function serializeActivity(): string {
+		return JSON.stringify({ form, north, east, limitCapacity });
+	}
+
+	function serializeVisibility(): string {
+		return JSON.stringify([...visibilityGroupIds].sort());
+	}
+
+	function serializeNotification(): string {
+		return JSON.stringify({ notificationTarget, notificationKind, notificationDraft });
+	}
 
 	async function load(): Promise<void> {
 		loading = true;
@@ -239,6 +283,9 @@
 					: '';
 				form.creator_id = me.admin_group_ids[0] ?? '';
 			}
+			if (savedActivitySnapshot === '') savedActivitySnapshot = serializeActivity();
+			if (savedVisibilitySnapshot === '') savedVisibilitySnapshot = serializeVisibility();
+			if (savedNotificationSnapshot === '') savedNotificationSnapshot = serializeNotification();
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
@@ -391,6 +438,7 @@
 				)
 			);
 			await refreshNotifications();
+			savedNotificationSnapshot = serializeNotification();
 			toasts.show('success', m.backend_success());
 		} catch (cause) {
 			error = frontendError(cause);
@@ -462,6 +510,7 @@
 			}
 			toasts.show('success', m.backend_success());
 			await load();
+			savedVisibilitySnapshot = serializeVisibility();
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
@@ -488,12 +537,21 @@
 		if (!canEdit) return;
 		const validationIssue = validate();
 		if (validationIssue) {
+			invalidField = validationIssue.field;
+			if (
+				validationIssue.field === m.location_url() ||
+				validationIssue.field.includes(m.latitude()) ||
+				validationIssue.field.includes(m.longitude())
+			)
+				changeEditorTab(1);
+			else changeEditorTab(0);
 			error = `${validationIssue.field}: ${validationIssue.message}`;
 			toasts.show('error', error);
 			return;
 		}
 		saving = true;
 		error = null;
+		invalidField = null;
 		try {
 			const activityId = id ?? crypto.randomUUID();
 			const keepsAdminAccess = adminGroupIds.some(
@@ -510,13 +568,19 @@
 				}
 			});
 			form.is_hidden = isHidden;
+			savedActivitySnapshot = serializeActivity();
 			if (!id) {
+				allowNavigation = true;
 				await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
 			} else {
 				savedHostIds = [...form.host_ids];
-				if (!keepsAdminAccess) await goto(resolve('/'), { replaceState: true });
+				if (!keepsAdminAccess) {
+					allowNavigation = true;
+					await goto(resolve('/'), { replaceState: true });
+				}
 			}
 		} catch (cause) {
+			allowNavigation = false;
 			error = frontendError(cause);
 		} finally {
 			saving = false;
@@ -594,16 +658,43 @@
 		try {
 			const activityId = crypto.randomUUID();
 			const copy = $state.snapshot(form);
+			const sourceTicketKinds = await Promise.all(
+				tickets.map((ticket) => getTicketKind(ticket.id))
+			);
 			await saveActivity(activityId, {
 				...copy,
 				is_hidden: true,
-				title: {
-					sv: `Kopia av ${copy.title.sv}`,
-					en: `Copy of ${copy.title.en}`
-				}
+				title: copiedLocalizedTitle(copy.title)
 			});
+			const now = Date.now();
+			await Promise.all(
+				sourceTicketKinds
+					.filter(
+						(kind) =>
+							!kind.has_been_released && new Date(kind.purchasing_available_start).getTime() > now
+					)
+					.map((kind) =>
+						saveTicketKind(crypto.randomUUID(), {
+							activity_id: activityId,
+							name: { ...kind.ticket_kind_name },
+							price: kind.price,
+							purchasing_available_start: kind.purchasing_available_start,
+							purchasing_available_stop: kind.purchasing_available_stop,
+							max_tickets: kind.max_tickets,
+							min_tickets: kind.min_tickets,
+							allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
+							allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
+							allow_transfer_ticket_bypass_allowed_groups:
+								kind.allow_transfer_ticket_bypass_allowed_groups,
+							allowed_group_ids: [...kind.allowed_group_ids],
+							addons: copyTicketAddons(kind.available_addons)
+						})
+					)
+			);
+			allowNavigation = true;
 			await goto(resolve('/activities/[id]', { id: activityId }));
 		} catch (cause) {
+			allowNavigation = false;
 			error = frontendError(cause);
 		} finally {
 			saving = false;
@@ -650,7 +741,7 @@
 		labels={editorTabs}
 		active={editorTab}
 		accessibleLabel={m.edit_activity()}
-		onchange={(index) => (editorTab = index)} />
+		onchange={changeEditorTab} />
 	<form class="stack" novalidate onsubmit={submit}>
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 		{#if !canEdit}<p class="info-banner" role="status">{m.activity_read_only()}</p>{/if}
@@ -665,6 +756,7 @@
 					{contactValue}
 					{imageUrl}
 					{uploading}
+					{invalidField}
 					onchange={(value) => (form = value)}
 					onstartchange={updateStart}
 					oncontactkindchange={updateContactKind}
@@ -676,6 +768,7 @@
 					value={form.location}
 					{north}
 					{east}
+					{invalidField}
 					onchange={(location) => (form = { ...form, location })}
 					onnorthchange={(value) => (north = value)}
 					oneastchange={(value) => (east = value)} />

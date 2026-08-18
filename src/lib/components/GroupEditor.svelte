@@ -7,9 +7,11 @@
 		addMember,
 		approveMemberRequest,
 		deleteGroup,
+		deleteGroupNotification,
 		denyMemberRequest,
 		getMe,
 		listAdmins,
+		listGroupNotifications,
 		listGroupRelations,
 		listGroupTree,
 		listMemberRequests,
@@ -17,25 +19,34 @@
 		removeAdmin,
 		removeGroupRelation,
 		removeMember,
-		saveGroup
+		saveGroup,
+		saveGroupNotification
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { AdminUser, Group, PutGroup } from '$lib/api/types';
+	import type {
+		AdminUser,
+		Group,
+		GroupNotification,
+		PutGroup,
+		PutNotification
+	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
-	import { localize } from '$lib/i18n';
+	import { dateTime, localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
+	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import RelationList from '$lib/components/RelationList.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { uploadImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
 	import { toasts } from '$lib/toasts.svelte';
-	import { ArrowLeft } from '@lucide/svelte';
+	import { ArrowLeft, Pencil, Plus, Trash2 } from '@lucide/svelte';
 	import { Switch } from '@svar-ui/svelte-core';
 
 	let { id }: { id: string | null } = $props();
 	let loading = $state(false);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+	let invalidField = $state<string | null>(null);
 	let members = $state<AdminUser[]>([]);
 	let requests = $state<string[]>([]);
 	let admins = $state<AdminUser[]>([]);
@@ -48,6 +59,13 @@
 	let adminGroupIds = $state<string[]>([]);
 	let directAdmin = $state(false);
 	let savedFormSnapshot = $state('');
+	let notifications = $state<GroupNotification[]>([]);
+	let notificationEditorOpen = $state(false);
+	let notificationId = $state<string | null>(null);
+	let notificationDraft = $state<PutNotification>(newNotificationDraft());
+	let savedNotificationSnapshot = $state('');
+	let notificationSaving = $state(false);
+	let deletingNotificationId = $state<string | null>(null);
 	let allowNavigation = $state(false);
 	let form = $state<PutGroup>({
 		path: '',
@@ -59,9 +77,15 @@
 	const mainFormDirty = $derived(
 		savedFormSnapshot !== '' && serializeGroup(form) !== savedFormSnapshot
 	);
+	const notificationDirty = $derived(
+		notificationEditorOpen &&
+			savedNotificationSnapshot !== '' &&
+			serializeNotification(notificationDraft) !== savedNotificationSnapshot
+	);
+	const hasUnsavedChanges = $derived(mainFormDirty || notificationDirty);
 
 	beforeNavigate(({ cancel, willUnload }) => {
-		if (!mainFormDirty || allowNavigation) return;
+		if (!hasUnsavedChanges || allowNavigation) return;
 		if (willUnload) {
 			cancel();
 			return;
@@ -104,12 +128,13 @@
 			originalPath = group.path;
 			logoUrl = group.logo_url;
 			if (directAdmin) {
-				[members, requests, admins, joiners, activityAdmins] = await Promise.all([
+				[members, requests, admins, joiners, activityAdmins, notifications] = await Promise.all([
 					listMembers(id),
 					listMemberRequests(id),
 					listAdmins(id),
 					listGroupRelations(id, 'joiner-groups'),
-					listGroupRelations(id, 'activity-admin-groups')
+					listGroupRelations(id, 'activity-admin-groups'),
+					listGroupNotifications(id)
 				]);
 			} else {
 				admins = await listAdmins(id);
@@ -123,6 +148,95 @@
 
 	function serializeGroup(value: PutGroup): string {
 		return JSON.stringify(value);
+	}
+
+	function newNotificationDraft(): PutNotification {
+		return {
+			title: { sv: '', en: '' },
+			content: { sv: '', en: '' },
+			send_at: new Date(Date.now() + 86_400_000).toISOString()
+		};
+	}
+
+	function serializeNotification(value: PutNotification): string {
+		return JSON.stringify(value);
+	}
+
+	function mayReplaceNotificationDraft(): boolean {
+		return !notificationDirty || confirm(m.discard_notification_changes());
+	}
+
+	function newNotification(): void {
+		if (!mayReplaceNotificationDraft()) return;
+		notificationId = crypto.randomUUID();
+		notificationDraft = newNotificationDraft();
+		savedNotificationSnapshot = serializeNotification(notificationDraft);
+		notificationEditorOpen = true;
+	}
+
+	function editNotification(notification: GroupNotification): void {
+		if (!mayReplaceNotificationDraft()) return;
+		notificationId = notification.id;
+		notificationDraft = {
+			title: { ...notification.title },
+			content: { ...notification.content },
+			send_at: notification.send_at
+		};
+		savedNotificationSnapshot = serializeNotification(notificationDraft);
+		notificationEditorOpen = true;
+	}
+
+	function closeNotificationEditor(): void {
+		if (!mayReplaceNotificationDraft()) return;
+		notificationEditorOpen = false;
+		notificationId = null;
+		savedNotificationSnapshot = '';
+	}
+
+	async function submitNotification(): Promise<void> {
+		if (!id || !notificationId || notificationSaving) return;
+		if (
+			!notificationDraft.title.sv?.trim() ||
+			!notificationDraft.title.en?.trim() ||
+			!notificationDraft.content.sv?.trim() ||
+			!notificationDraft.content.en?.trim()
+		) {
+			error = `${m.notification()}: ${m.required_fields()}`;
+			toasts.show('error', error);
+			return;
+		}
+		notificationSaving = true;
+		error = null;
+		try {
+			await saveGroupNotification(id, notificationId, notificationDraft);
+			notifications = await listGroupNotifications(id);
+			savedNotificationSnapshot = serializeNotification(notificationDraft);
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			notificationSaving = false;
+		}
+	}
+
+	async function removeNotification(notification: GroupNotification): Promise<void> {
+		if (!id || !confirm(m.delete_notification_confirm())) return;
+		deletingNotificationId = notification.id;
+		error = null;
+		try {
+			await deleteGroupNotification(id, notification.id);
+			notifications = notifications.filter((item) => item.id !== notification.id);
+			if (notificationId === notification.id) {
+				notificationEditorOpen = false;
+				notificationId = null;
+				savedNotificationSnapshot = '';
+			}
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			deletingNotificationId = null;
+		}
 	}
 
 	function validPath(path: string): boolean {
@@ -147,6 +261,7 @@
 	}
 
 	function showValidation(field: string, message: string): void {
+		invalidField = field;
 		error = `${field}: ${message}`;
 		toasts.show('error', error);
 	}
@@ -199,6 +314,7 @@
 	async function submit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		error = null;
+		invalidField = null;
 		const validationIssue = validateGroup(form);
 		if (validationIssue) {
 			showValidation(validationIssue.field, validationIssue.message);
@@ -296,7 +412,7 @@
 			<section class="card card-pad">
 				<h2 class="section-title">{m.group_details()}</h2>
 				<div class="grid-2">
-					<div class="field">
+					<div class:field-error={invalidField === m.group_logo()} class="field">
 						<span>{m.replace_logo()}</span>
 						{#if logoUrl}
 							<div class="logo-preview">
@@ -306,7 +422,7 @@
 						{/if}
 						<input
 							type="file"
-							accept="image/jpeg,image/png,image/webp,image/avif"
+							accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
 							onchange={(event) => void chooseLogo(event)} />
 						{#if form.logo_id && !logoUrl}<span class="success-banner">{m.image_ready()}</span>{/if}
 					</div>
@@ -315,6 +431,8 @@
 						labelSv={m.name_sv()}
 						labelEn={m.name_en()}
 						required
+						errorSv={invalidField === m.name_sv()}
+						errorEn={invalidField === m.name_en()}
 						onchange={(value) => (form.name = value)} />
 					<LocalizedField
 						value={form.description}
@@ -326,8 +444,11 @@
 				<details class="advanced-panel">
 					<summary>{m.advanced()}</summary>
 					<div class="advanced-content">
-						<label class="field"
-							><span>{m.path()}</span><input required bind:value={form.path} /></label>
+						<label class:field-error={invalidField === m.path()} class="field"
+							><span>{m.path()}</span><input
+								required
+								aria-invalid={invalidField === m.path()}
+								bind:value={form.path} /></label>
 						<label class="switch-field">
 							<Switch
 								value={form.limit_membership_visibility}
@@ -338,6 +459,78 @@
 					</div>
 				</details>
 			</section>
+			{#if id}
+				<section class="card card-pad stack">
+					<div class="toolbar between">
+						<h2 class="section-title">{m.scheduled_notifications()}</h2>
+						<button class="button-link secondary" type="button" onclick={newNotification}>
+							<Plus size={16} />
+							{m.new_notification()}
+						</button>
+					</div>
+					<p class="warning-banner" role="note">{m.group_notification_recipients_warning()}</p>
+					{#if notifications.length === 0}
+						<p class="empty-state">{m.empty()}</p>
+					{:else}
+						<ul class="list">
+							{#each notifications as notification (notification.id)}
+								<li>
+									<div class="list-main">
+										<strong>{localize(notification.title, m.notification())}</strong>
+										<span>{dateTime(notification.send_at)}</span>
+										<span>{localize(notification.content)}</span>
+									</div>
+									<div class="toolbar">
+										<button
+											class="icon-button"
+											type="button"
+											aria-label={m.edit()}
+											onclick={() => editNotification(notification)}>
+											<Pencil size={16} />
+										</button>
+										<button
+											class="icon-button danger-button"
+											type="button"
+											disabled={deletingNotificationId === notification.id}
+											aria-label={m.delete()}
+											onclick={() => void removeNotification(notification)}>
+											<Trash2 size={16} />
+										</button>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if notificationEditorOpen}
+						<div class="nested-card stack">
+							<h3 class="section-title">
+								{notifications.some((notification) => notification.id === notificationId)
+									? m.edit_notification()
+									: m.new_notification()}
+							</h3>
+							<div class="grid-2">
+								<NotificationFields
+									value={notificationDraft}
+									onchange={(value) => (notificationDraft = value)} />
+							</div>
+							<div class="toolbar">
+								<button
+									class="button-link"
+									type="button"
+									disabled={notificationSaving}
+									onclick={() => void submitNotification()}>
+									{notificationSaving ? m.saving() : m.save_notification()}
+								</button>
+								<button
+									class="button-link secondary"
+									type="button"
+									disabled={notificationSaving}
+									onclick={closeNotificationEditor}>{m.cancel()}</button>
+							</div>
+						</div>
+					{/if}
+				</section>
+			{/if}
 			{#if id}<section class="card card-pad grid-2">
 					<RelationList
 						title={m.joiner_groups()}

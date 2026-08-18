@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
+	import { activityTabIndex, activityTabUrl, isActivityTabNavigation } from '$lib/activity-tabs';
 	import {
 		getMe,
 		inviteActivityHost,
@@ -10,11 +12,17 @@
 		saveTicketKind
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { Group, PutActivity, PutTicketKind, PutTicketNotification } from '$lib/api/types';
+	import type { Group, PutActivity, PutNotification, PutTicketKind } from '$lib/api/types';
+	import {
+		defaultActivityVisibility,
+		defaultTicketRelease,
+		ticketReleaseIsTooSoon
+	} from '$lib/activity-form';
 	import AddonEditor from '$lib/components/AddonEditor.svelte';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
+	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
@@ -33,12 +41,20 @@
 	import { ArrowLeft, Plus, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 
-	type TicketDraft = { id: string; preset: TicketPresetId; dietary: boolean; body: PutTicketKind };
+	type TicketDraft = {
+		id: string;
+		preset: TicketPresetId;
+		dietary: boolean;
+		invited: boolean;
+		paidPrice: number;
+		transfersEnabled: boolean;
+		body: PutTicketKind;
+	};
 	type NotificationDraft = {
 		id: string;
 		target: string;
 		kind: string;
-		body: PutTicketNotification;
+		body: PutNotification;
 	};
 
 	const activityId = crypto.randomUUID();
@@ -48,11 +64,13 @@
 		m.creation_step_tickets(),
 		m.creation_step_notifications()
 	];
-	let step = $state(0);
+	let step = $state(activityTabIndex(page.url));
 	let loading = $state(true);
 	let saving = $state(false);
 	let uploading = $state(false);
 	let error = $state<string | null>(null);
+	let invalidField = $state<string | null>(null);
+	let invalidTicketId = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
 	let imageUrl = $state('');
@@ -63,8 +81,9 @@
 	let visibilityGroupIds = $state<string[]>([]);
 	let hasTickets = $state(true);
 	let limitCapacity = $state(false);
-	let tickets = $state<TicketDraft[]>([newTicketDraft()]);
 	let notifications = $state<NotificationDraft[]>([]);
+	let savedWizardSnapshot = $state('');
+	let allowNavigation = $state(false);
 	let activity = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
@@ -80,33 +99,75 @@
 		max_tickets: UNLIMITED_TICKETS,
 		host_ids: []
 	});
+	let tickets = $state<TicketDraft[]>([newTicketDraft()]);
+	let openTicketEditors = $state<Record<string, boolean>>({});
 	const contactValue = $derived(activity.responsible_contact.replace(/^(mailto:|tel:)/, ''));
+	const wizardDirty = $derived(
+		savedWizardSnapshot !== '' && serializeWizard() !== savedWizardSnapshot
+	);
+
+	beforeNavigate(({ cancel, from, to, willUnload }) => {
+		if (!wizardDirty || allowNavigation) return;
+		if (isActivityTabNavigation(from?.url ?? null, to?.url ?? null)) return;
+		if (willUnload) {
+			cancel();
+			return;
+		}
+		if (!confirm(m.unsaved_changes())) cancel();
+	});
 
 	$effect(() => {
 		void load();
 	});
 
+	$effect(() => {
+		step = activityTabIndex(page.url);
+	});
+
+	function changeStep(index: number): void {
+		if (index === step) return;
+		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+	}
+
 	function newTicketDraft(): TicketDraft {
 		const id = crypto.randomUUID();
+		const release = defaultTicketRelease();
 		return {
 			id,
 			preset: 'simple',
 			dietary: true,
+			invited: false,
+			paidPrice: 0,
+			transfersEnabled: true,
 			body: {
 				activity_id: activityId,
 				name: { sv: '', en: '' },
 				price: 0,
-				purchasing_available_start: new Date().toISOString(),
+				purchasing_available_start: release,
 				purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
 				max_tickets: 1,
 				min_tickets: 0,
-				allow_transfer_ticket_start: new Date().toISOString(),
-				allow_transfer_ticket_stop: new Date().toISOString(),
+				allow_transfer_ticket_start: release,
+				allow_transfer_ticket_stop: activity.time_start,
 				allow_transfer_ticket_bypass_allowed_groups: false,
 				allowed_group_ids: [],
 				addons: [createDietaryPreferencesAddon()]
 			}
 		};
+	}
+
+	function serializeWizard(): string {
+		return JSON.stringify({
+			activity,
+			north,
+			east,
+			organizerIds,
+			visibilityGroupIds,
+			hasTickets,
+			limitCapacity,
+			tickets,
+			notifications
+		});
 	}
 
 	async function load(): Promise<void> {
@@ -115,8 +176,10 @@
 			groups = tree;
 			adminGroupIds = me.admin_group_ids;
 			activity.creator_id = me.admin_group_ids[0] ?? '';
+			visibilityGroupIds = defaultActivityVisibility(tree, activity.creator_id);
 			activity.responsible_name = me.name;
 			if (me.id.startsWith('email:')) activity.responsible_contact = `mailto:${me.id.slice(6)}`;
+			savedWizardSnapshot = serializeWizard();
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
@@ -124,50 +187,81 @@
 		}
 	}
 
-	function showError(message: string): false {
+	function showError(
+		message: string,
+		field: string | null = null,
+		ticketId: string | null = null
+	): false {
 		error = message;
+		invalidField = field;
+		invalidTicketId = ticketId;
 		toasts.show('error', message);
 		return false;
 	}
 
 	function validateStep(index: number): boolean {
 		error = null;
+		invalidField = null;
+		invalidTicketId = null;
 		if (index === 0) {
 			if (!activity.title.sv?.trim() || !activity.title.en?.trim())
-				return showError(`${m.title_sv()}: ${m.required_fields()}`);
+				return showError(
+					`${m.title_sv()}: ${m.required_fields()}`,
+					!activity.title.sv?.trim() ? m.title_sv() : m.title_en()
+				);
 			if (!activity.description.sv?.trim() || !activity.description.en?.trim())
-				return showError(`${m.description_sv()}: ${m.required_fields()}`);
-			if (!activity.image_id) return showError(`${m.activity_image()}: ${m.required_fields()}`);
-			if (!activity.creator_id) return showError(`${m.creator()}: ${m.required_fields()}`);
+				return showError(
+					`${m.description_sv()}: ${m.required_fields()}`,
+					!activity.description.sv?.trim() ? m.description_sv() : m.description_en()
+				);
+			if (!activity.image_id)
+				return showError(`${m.activity_image()}: ${m.required_fields()}`, m.activity_image());
+			if (!activity.creator_id)
+				return showError(`${m.creator()}: ${m.required_fields()}`, m.creator());
 			if (!activity.responsible_name.trim() || !contactValue.trim())
-				return showError(`${m.responsible_contact()}: ${m.required_fields()}`);
+				return showError(
+					`${m.responsible_contact()}: ${m.required_fields()}`,
+					!activity.responsible_name.trim() ? m.responsible_name() : m.responsible_contact()
+				);
 			if (new Date(activity.time_end) <= new Date(activity.time_start))
-				return showError(m.end_after_start());
+				return showError(m.end_after_start(), m.end());
 		}
 		if (index === 1) {
-			if ((north && !east) || (!north && east)) return showError(m.coordinates_together());
+			if ((north && !east) || (!north && east))
+				return showError(m.coordinates_together(), `${m.latitude()} / ${m.longitude()}`);
 			if (north && (!Number.isFinite(Number(north)) || Math.abs(Number(north)) > 90))
-				return showError(m.invalid_coordinates());
+				return showError(m.invalid_coordinates(), m.latitude());
 			if (east && (!Number.isFinite(Number(east)) || Math.abs(Number(east)) > 180))
-				return showError(m.invalid_coordinates());
+				return showError(m.invalid_coordinates(), m.longitude());
 		}
 		if (index === 2) {
 			if (!hasTickets && visibilityGroupIds.length === 0)
 				return showError(`${m.visibility_access()}: ${m.required_fields()}`);
 			for (const ticket of hasTickets ? tickets : []) {
 				if (!ticket.body.name.sv?.trim() || !ticket.body.name.en?.trim())
-					return showError(`${m.ticket_name()}: ${m.required_fields()}`);
-				if (ticket.preset === 'allocated' && ticket.body.allowed_group_ids.length !== 1)
-					return showError(m.preset_requires_one_group());
+					return showError(
+						`${m.ticket_name()}: ${m.required_fields()}`,
+						m.ticket_name(),
+						ticket.id
+					);
+				if (ticket.preset === 'allocated' && ticket.body.allowed_group_ids.length === 0)
+					return showError(`${m.allowed_groups()}: ${m.required_fields()}`);
 				if (ticket.body.purchasing_available_stop <= ticket.body.purchasing_available_start)
-					return showError(m.end_after_start());
+					return showError(m.end_after_start(), m.available_until(), ticket.id);
+				if (ticketReleaseIsTooSoon(ticket.body.purchasing_available_start))
+					return showError(m.ticket_release_too_soon(), m.available_from(), ticket.id);
+				if (
+					ticket.transfersEnabled &&
+					ticket.body.allow_transfer_ticket_stop <= ticket.body.allow_transfer_ticket_start
+				)
+					return showError(m.ticket_dates_order(), m.transfer_until(), ticket.id);
 			}
 		}
 		return true;
 	}
 
 	function next(): void {
-		if (validateStep(step)) step = Math.min(steps.length - 1, step + 1);
+		if (validateStep(step)) changeStep(Math.min(steps.length - 1, step + 1));
 	}
 
 	function updateContactKind(value: string | number): void {
@@ -179,12 +273,23 @@
 		activity.responsible_contact = `${contactKind}:${value.trim()}`;
 	}
 
+	function updateActivity(value: PutActivity): void {
+		if (value.creator_id !== activity.creator_id)
+			visibilityGroupIds = defaultActivityVisibility(groups, value.creator_id);
+		activity = value;
+	}
+
 	function updateStart(value: string): void {
+		const previousStart = activity.time_start;
 		const duration = Math.max(
 			3_600_000,
 			new Date(activity.time_end).getTime() - new Date(activity.time_start).getTime()
 		);
 		activity.time_start = value;
+		for (const ticket of tickets) {
+			if (ticket.body.allow_transfer_ticket_stop === previousStart)
+				ticket.body.allow_transfer_ticket_stop = value;
+		}
 		if (new Date(activity.time_end) <= new Date(value))
 			activity.time_end = new Date(new Date(value).getTime() + duration).toISOString();
 	}
@@ -210,9 +315,40 @@
 		const shape = applyTicketPreset(draft.body, preset);
 		draft.preset = preset;
 		draft.body = { ...draft.body, ...shape };
+		if (preset === 'allocated') {
+			draft.paidPrice = draft.body.price;
+			draft.invited = draft.body.price === 0;
+		}
 		draft.dietary = ['free', 'simple', 'allocated'].includes(preset);
 		if (draft.dietary && draft.body.addons.length === 0)
 			draft.body.addons = [createDietaryPreferencesAddon()];
+	}
+
+	function updateTicket(index: number, value: PutTicketKind): void {
+		const draft = tickets[index];
+		if (draft.body.allow_transfer_ticket_start === draft.body.purchasing_available_start)
+			value.allow_transfer_ticket_start = value.purchasing_available_start;
+		draft.body = value;
+	}
+
+	function toggleInvited(index: number, invited: boolean): void {
+		const draft = tickets[index];
+		draft.invited = invited;
+		if (invited) {
+			draft.paidPrice = draft.body.price;
+			draft.body.price = 0;
+		} else {
+			draft.body.price = Math.max(draft.paidPrice, 1);
+		}
+	}
+
+	function toggleTransfers(index: number, enabled: boolean): void {
+		const draft = tickets[index];
+		draft.transfersEnabled = enabled;
+		if (enabled) {
+			draft.body.allow_transfer_ticket_start = draft.body.purchasing_available_start;
+			draft.body.allow_transfer_ticket_stop = activity.time_start;
+		}
 	}
 
 	function toggleDietary(index: number, enabled: boolean): void {
@@ -238,7 +374,11 @@
 	}
 
 	async function submit(): Promise<void> {
-		if (!validateStep(0) || !validateStep(1) || !validateStep(2)) return;
+		for (let index = 0; index <= 2; index += 1) {
+			if (validateStep(index)) continue;
+			changeStep(index);
+			return;
+		}
 		if (
 			notifications.some(
 				(item) =>
@@ -281,7 +421,12 @@
 			}
 			if (hasTickets) {
 				for (const ticket of tickets) {
-					await saveTicketKind(ticket.id, ticket.body);
+					await saveTicketKind(ticket.id, {
+						...ticket.body,
+						allow_transfer_ticket_stop: ticket.transfersEnabled
+							? ticket.body.allow_transfer_ticket_stop
+							: ticket.body.allow_transfer_ticket_start
+					});
 					createdTickets.push(ticket);
 				}
 			}
@@ -293,8 +438,10 @@
 				for (const target of targets)
 					await saveNotification(target.id, notification.kind, notification.body);
 			}
+			allowNavigation = true;
 			await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
 		} catch (cause) {
+			allowNavigation = false;
 			error = frontendError(cause);
 			toasts.show('error', `${m.wizard_partial_failure()} ${error}`);
 		} finally {
@@ -315,8 +462,9 @@
 	labels={steps}
 	active={step}
 	furthest={step}
+	interactive={false}
 	accessibleLabel={m.new_activity()}
-	onchange={(index) => (step = index)} />
+	onchange={changeStep} />
 
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 {#if loading}<div class="loader"></div>{:else}
@@ -330,7 +478,8 @@
 				{contactValue}
 				{imageUrl}
 				{uploading}
-				onchange={(value) => (activity = value)}
+				{invalidField}
+				onchange={updateActivity}
 				onstartchange={updateStart}
 				oncontactkindchange={updateContactKind}
 				oncontactvaluechange={updateContactValue}
@@ -341,6 +490,7 @@
 					value={activity.location}
 					{north}
 					{east}
+					{invalidField}
 					onchange={(location) => (activity = { ...activity, location })}
 					onnorthchange={(value) => (north = value)}
 					oneastchange={(value) => (east = value)} />
@@ -391,7 +541,10 @@
 							><Plus size={16} /> {m.add_ticket_kind()}</button>
 					</div>
 					{#each tickets as ticket, index (ticket.id)}
-						<details class="advanced-panel" open={index === 0}>
+						<details
+							class="advanced-panel"
+							ontoggle={(event) => (openTicketEditors[ticket.id] = event.newState === 'open')}
+							open={openTicketEditors[ticket.id] ?? index === 0}>
 							<summary>{localize(ticket.body.name, '').trim() || m.empty_ticket_kind()}</summary>
 							<div class="stack advanced-content">
 								<div class="toolbar between">
@@ -416,10 +569,43 @@
 								<TicketFields
 									value={ticket.body}
 									{groups}
-									showPrice={ticket.preset !== 'free'}
+									invalidField={invalidTicketId === ticket.id ? invalidField : null}
+									showPrice={ticket.preset !== 'free' &&
+										!(ticket.preset === 'allocated' && ticket.invited)}
+									showInvitedToggle={ticket.preset === 'allocated'}
+									invited={ticket.invited}
 									capacityLabel={ticket.preset === 'allocated' ? undefined : m.capacity()}
-									singleGroup={ticket.preset === 'allocated'}
-									onchange={(value) => (ticket.body = value)} />
+									oninvitedchange={(invited) => toggleInvited(index, invited)}
+									onchange={(value) => updateTicket(index, value)} />
+								<div class="stack transfer-settings">
+									<label class="switch-field">
+										<Switch
+											value={ticket.transfersEnabled}
+											onchange={({ value }) => toggleTransfers(index, value)} />
+										<span>{m.allow_transfers()}</span>
+									</label>
+									{#if ticket.transfersEnabled}
+										<div class="date-range">
+											<DateTimePicker
+												label={m.transfer_from()}
+												value={ticket.body.allow_transfer_ticket_start}
+												onchange={(value) => (ticket.body.allow_transfer_ticket_start = value)} />
+											<DateTimePicker
+												label={m.transfer_until()}
+												value={ticket.body.allow_transfer_ticket_stop}
+												error={ticket.body.allow_transfer_ticket_stop <=
+													ticket.body.allow_transfer_ticket_start}
+												onchange={(value) => (ticket.body.allow_transfer_ticket_stop = value)} />
+										</div>
+										<label class="switch-field">
+											<Switch
+												value={ticket.body.allow_transfer_ticket_bypass_allowed_groups}
+												onchange={({ value }) =>
+													(ticket.body.allow_transfer_ticket_bypass_allowed_groups = value)} />
+											<span>{m.transfer_bypass()}</span>
+										</label>
+									{/if}
+								</div>
 								{#if ['free', 'simple', 'allocated'].includes(ticket.preset)}<label
 										class="switch-field"
 										><Switch
@@ -509,8 +695,10 @@
 		{/if}
 
 		<div class="wizard-actions">
-			{#if step > 0}<button class="button-link secondary" type="button" onclick={() => (step -= 1)}
-					>{m.back()}</button
+			{#if step > 0}<button
+					class="button-link secondary"
+					type="button"
+					onclick={() => changeStep(step - 1)}>{m.back()}</button
 				>{/if}
 			{#if step < steps.length - 1}<button class="button-link" type="button" onclick={next}
 					>{m.continue()}</button

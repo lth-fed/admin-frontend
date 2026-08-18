@@ -5,6 +5,7 @@
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
 	import * as m from '$lib/paraglide/messages';
+	import { Switch } from '@svar-ui/svelte-core';
 
 	let {
 		value,
@@ -12,9 +13,13 @@
 		showName = true,
 		showPrice = true,
 		showDates = true,
+		showInvitedToggle = false,
+		invited = false,
 		capacityLabel,
 		capacityMin = 1,
 		singleGroup = false,
+		invalidField = null,
+		oninvitedchange,
 		onchange
 	}: {
 		value: PutTicketKind;
@@ -22,9 +27,13 @@
 		showName?: boolean;
 		showPrice?: boolean;
 		showDates?: boolean;
+		showInvitedToggle?: boolean;
+		invited?: boolean;
 		capacityLabel?: string;
 		capacityMin?: number;
 		singleGroup?: boolean;
+		invalidField?: string | null;
+		oninvitedchange?: (invited: boolean) => void;
 		onchange: (value: PutTicketKind) => void;
 	} = $props();
 
@@ -40,19 +49,29 @@
 			labelSv={m.name_sv()}
 			labelEn={m.name_en()}
 			required
+			errorSv={invalidField === m.name_sv() || invalidField === m.ticket_name()}
+			errorEn={invalidField === m.name_en() || invalidField === m.ticket_name()}
 			onchange={(name) => update({ name })} />
+	{/if}
+	{#if showInvitedToggle && oninvitedchange}
+		<label class="switch-field">
+			<Switch value={invited} onchange={({ value }) => oninvitedchange(value)} />
+			<span>{m.invited_ticket()}</span>
+		</label>
 	{/if}
 	{#if showPrice}
 		<MoneyInput
 			label={m.price()}
 			value={value.price}
+			error={invalidField === m.price()}
 			onchange={(price) => update({ price: price ?? Number.NaN })} />
 	{/if}
 	{#if capacityLabel}
-		<label class="field">
+		<label class:field-error={invalidField === capacityLabel} class="field">
 			<span>{capacityLabel}</span>
 			<input
 				type="number"
+				aria-invalid={invalidField === capacityLabel}
 				min={capacityMin}
 				max={2_147_483_646}
 				value={value.max_tickets}
@@ -64,12 +83,13 @@
 			<DateTimePicker
 				label={m.available_from()}
 				value={value.purchasing_available_start}
+				error={invalidField === m.available_from()}
 				onchange={(purchasing_available_start) => update({ purchasing_available_start })} />
 			<DateTimePicker
 				label={m.available_until()}
 				value={value.purchasing_available_stop}
-				error={new Date(value.purchasing_available_stop) <=
-					new Date(value.purchasing_available_start)}
+				error={invalidField === m.available_until() ||
+					new Date(value.purchasing_available_stop) <= new Date(value.purchasing_available_start)}
 				onchange={(purchasing_available_stop) => update({ purchasing_available_stop })} />
 		</div>
 	{/if}

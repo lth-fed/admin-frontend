@@ -42,6 +42,22 @@ export function setDietaryPreferencesAddon(addons: TicketAddon[], enabled: boole
 	return enabled ? [...withoutDietary, createDietaryPreferencesAddon()] : withoutDietary;
 }
 
+/** Copies addons with fresh IDs so they can belong to an independent ticket kind. */
+export function copyTicketAddons(addons: TicketAddon[]): TicketAddon[] {
+	return addons.map((addon) => ({
+		...addon,
+		id: crypto.randomUUID(),
+		name: { ...addon.name },
+		options: addon.options.map((option) => ({
+			...option,
+			id: crypto.randomUUID(),
+			name: { ...option.name },
+			bookkeeping_prices: [...option.bookkeeping_prices],
+			bookkeeping_price_categories: [...option.bookkeeping_price_categories]
+		}))
+	}));
+}
+
 function addonsWithDietaryPreferencesDefault(addons: TicketAddon[]): TicketAddon[] {
 	return addons.length > 0 ? addons : [createDietaryPreferencesAddon()];
 }
@@ -67,7 +83,7 @@ export function detectTicketPreset(ticket: TicketKind): TicketPresetId {
 	if (
 		ticket.min_tickets > 0 &&
 		ticket.max_tickets === UNLIMITED_TICKETS &&
-		ticket.allowed_group_ids.length === 1
+		ticket.allowed_group_ids.length > 0
 	)
 		return 'allocated';
 	if (ticket.min_tickets === 0 && ticket.max_tickets !== UNLIMITED_TICKETS) return 'simple';
@@ -125,7 +141,6 @@ export function applyTicketPreset(form: PutTicketKind, preset: TicketPresetId): 
 				...current,
 				max_tickets: UNLIMITED_TICKETS,
 				min_tickets: Math.max(1, current.min_tickets),
-				allowed_group_ids: current.allowed_group_ids.slice(0, 1),
 				addons: addonsWithDietaryPreferencesDefault(current.addons)
 			};
 		case 'advanced':

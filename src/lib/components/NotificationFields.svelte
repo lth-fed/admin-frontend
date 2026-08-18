@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PutTicketNotification } from '$lib/api/types';
+	import type { PutNotification } from '$lib/api/types';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import * as m from '$lib/paraglide/messages';
@@ -10,21 +10,23 @@
 		onkindchange,
 		onchange
 	}: {
-		kind: string;
-		value: PutTicketNotification;
-		onkindchange: (kind: string) => void;
-		onchange: (value: PutTicketNotification) => void;
+		kind?: string;
+		value: PutNotification;
+		onkindchange?: (kind: string) => void;
+		onchange: (value: PutNotification) => void;
 	} = $props();
 
-	function update(update: Partial<PutTicketNotification>): void {
+	function update(update: Partial<PutNotification>): void {
 		onchange({ ...value, ...update });
 	}
 </script>
 
-<label class="field">
-	<span>{m.notification_kind()}</span>
-	<input value={kind} oninput={(event) => onkindchange(event.currentTarget.value)} />
-</label>
+{#if kind !== undefined && onkindchange}
+	<label class="field">
+		<span>{m.notification_kind()}</span>
+		<input value={kind} oninput={(event) => onkindchange(event.currentTarget.value)} />
+	</label>
+{/if}
 <LocalizedField
 	value={value.title}
 	labelSv={m.notification_title_sv()}

@@ -10,21 +10,48 @@
 	import type { Group } from '$lib/api/types';
 	import { localize } from '$lib/i18n';
 	import { ChevronDown, ChevronRight } from '@lucide/svelte';
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 
 	let {
 		groups,
 		revealIds = [],
+		storageKey,
 		children
 	}: {
 		groups: Group[];
 		revealIds?: string[];
+		storageKey?: string;
 		children: Snippet<[GroupTreeRow]>;
 	} = $props();
 
 	const expanded = new SvelteSet<string>();
+	const collapsed = new SvelteSet<string>();
 	const revealed = new SvelteSet<string>();
+
+	onMount(() => {
+		if (!storageKey) return;
+		try {
+			const stored = window.localStorage.getItem(storageKey);
+			if (stored === null) return;
+			const state: unknown = JSON.parse(stored);
+			if (!state || typeof state !== 'object') return;
+			const { expanded: expandedIds, collapsed: collapsedIds } = state as Record<string, unknown>;
+			if (
+				!Array.isArray(expandedIds) ||
+				!expandedIds.every((id) => typeof id === 'string') ||
+				!Array.isArray(collapsedIds) ||
+				!collapsedIds.every((id) => typeof id === 'string')
+			)
+				return;
+			expanded.clear();
+			collapsed.clear();
+			for (const id of expandedIds) expanded.add(id);
+			for (const id of collapsedIds) collapsed.add(id);
+		} catch {
+			// Browser storage may be disabled; the tree still works without persistence.
+		}
+	});
 
 	$effect(() => {
 		const byPath = new Map(groups.map((group) => [group.path, group]));
@@ -35,7 +62,7 @@
 			const parts = selected.path.split('.');
 			for (let index = 1; index < parts.length; index += 1) {
 				const ancestor = byPath.get(parts.slice(0, index).join('.'));
-				if (ancestor) expanded.add(ancestor.id);
+				if (ancestor && !collapsed.has(ancestor.id)) expanded.add(ancestor.id);
 			}
 			revealed.add(id);
 		}
@@ -67,8 +94,22 @@
 	});
 
 	function toggle(id: string): void {
-		if (expanded.has(id)) expanded.delete(id);
-		else expanded.add(id);
+		if (expanded.has(id)) {
+			expanded.delete(id);
+			collapsed.add(id);
+		} else {
+			expanded.add(id);
+			collapsed.delete(id);
+		}
+		if (!storageKey) return;
+		try {
+			window.localStorage.setItem(
+				storageKey,
+				JSON.stringify({ expanded: [...expanded], collapsed: [...collapsed] })
+			);
+		} catch {
+			// Browser storage may be disabled; keep the in-memory setting.
+		}
 	}
 </script>
 

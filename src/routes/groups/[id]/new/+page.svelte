@@ -19,6 +19,7 @@
 	let saving = $state(false);
 	let logoUploading = $state(false);
 	let error = $state<string | null>(null);
+	let invalidField = $state<string | null>(null);
 	let logoUrl = $state('');
 	let pathOverride = $state(false);
 	let formSnapshot = $state('');
@@ -118,6 +119,7 @@
 	}
 
 	function showValidation(field: string, message: string): void {
+		invalidField = field;
 		error = `${field}: ${message}`;
 		toasts.show('error', error);
 	}
@@ -139,6 +141,7 @@
 	async function submit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		error = null;
+		invalidField = null;
 		const validationIssue = validate();
 		if (validationIssue) {
 			showValidation(validationIssue.field, validationIssue.message);
@@ -193,8 +196,10 @@
 					labelSv={m.name_sv()}
 					labelEn={m.name_en()}
 					required
+					errorSv={invalidField === m.name_sv()}
+					errorEn={invalidField === m.name_en()}
 					onchange={updateName} />
-				<div class="field child-logo-field">
+				<div class:field-error={invalidField === m.group_logo()} class="field child-logo-field">
 					<span>{m.group_logo()}</span>
 					{#if logoUrl}
 						<div class="logo-preview">
@@ -204,7 +209,7 @@
 					{/if}
 					<input
 						type="file"
-						accept="image/jpeg,image/png,image/webp,image/avif"
+						accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
 						onchange={(event) => void chooseLogo(event)} />
 					{#if logoUploading}
 						<span class="muted">{m.uploading_image()}</span>
@@ -226,9 +231,13 @@
 						<Switch value={pathOverride} onchange={({ value }) => togglePathOverride(value)} />
 						<span>{m.override_path()}</span>
 					</label>
-					<label class="field">
+					<label class:field-error={invalidField === m.path()} class="field">
 						<span>{m.path()}</span>
-						<input required disabled={!pathOverride} bind:value={form.path} />
+						<input
+							required
+							disabled={!pathOverride}
+							aria-invalid={invalidField === m.path()}
+							bind:value={form.path} />
 					</label>
 					<label class="switch-field">
 						<Switch

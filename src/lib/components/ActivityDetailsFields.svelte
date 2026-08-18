@@ -12,6 +12,7 @@
 		adminGroupIds,
 		creatorReadonly = false,
 		creatorName = '',
+		invalidField = null,
 		contactKind,
 		contactValue,
 		imageUrl,
@@ -27,6 +28,7 @@
 		adminGroupIds: string[];
 		creatorReadonly?: boolean;
 		creatorName?: string;
+		invalidField?: string | null;
 		contactKind: 'mailto' | 'tel';
 		contactValue: string;
 		imageUrl: string;
@@ -47,6 +49,8 @@
 			labelSv={m.title_sv()}
 			labelEn={m.title_en()}
 			required
+			errorSv={invalidField === m.title_sv()}
+			errorEn={invalidField === m.title_en()}
 			onchange={(title) => onchange({ ...value, title })} />
 		<LocalizedField
 			value={value.description}
@@ -54,20 +58,23 @@
 			labelEn={m.description_en()}
 			multiline
 			required
+			errorSv={invalidField === m.description_sv()}
+			errorEn={invalidField === m.description_en()}
 			onchange={(description) => onchange({ ...value, description })} />
 		<DateTimePicker label={m.start()} value={value.time_start} onchange={onstartchange} />
 		<DateTimePicker
 			label={m.end()}
 			value={value.time_end}
-			error={new Date(value.time_end) <= new Date(value.time_start)}
+			error={invalidField === m.end() || new Date(value.time_end) <= new Date(value.time_start)}
 			onchange={(time_end) => onchange({ ...value, time_end })} />
-		<label class="field"
+		<label class:field-error={invalidField === m.responsible_name()} class="field"
 			><span>{m.responsible_name()}</span><input
 				required
+				aria-invalid={invalidField === m.responsible_name()}
 				value={value.responsible_name}
 				oninput={(event) =>
 					onchange({ ...value, responsible_name: event.currentTarget.value })} /></label>
-		<div class="field">
+		<div class:field-error={invalidField === m.responsible_contact()} class="field">
 			<span>{m.responsible_contact()}</span>
 			<div class="contact-inputs">
 				<Select
@@ -79,13 +86,14 @@
 					onchange={({ value: kind }) => oncontactkindchange(kind)} />
 				<input
 					required
+					aria-invalid={invalidField === m.responsible_contact()}
 					type={contactKind === 'mailto' ? 'email' : 'tel'}
 					placeholder={contactKind === 'mailto' ? 'admin@example.org' : '+46 70 123 45 67'}
 					value={contactValue}
 					oninput={(event) => oncontactvaluechange(event.currentTarget.value)} />
 			</div>
 		</div>
-		<div class="field flex! flex-col">
+		<div class:field-error={invalidField === m.creator()} class="field flex! flex-col">
 			<span>{m.creator()}</span>
 			{#if creatorReadonly}
 				<div class="readonly-value">
@@ -102,7 +110,9 @@
 						onchange({ ...value, creator_id: String(creator_id) })} />
 			{/if}
 		</div>
-		<div class="field activity-details-image">
+		<div
+			class:field-error={invalidField === m.activity_image()}
+			class="field activity-details-image">
 			<h2 class="section-title">{m.activity_image()}</h2>
 			{#if imageUrl}<div class="activity-image-preview">
 					<img src={imageUrl} alt={m.current_activity_image()} /><span
@@ -111,7 +121,7 @@
 			<label class="field"
 				><span>{uploading ? m.uploading_image() : m.choose_image()}</span><input
 					type="file"
-					accept="image/jpeg,image/png,image/webp,image/avif"
+					accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
 					onchange={onimagechange} /></label>
 		</div>
 	</div>

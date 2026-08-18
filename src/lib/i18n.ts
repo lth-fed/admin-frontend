@@ -8,6 +8,16 @@ export function localize(value: Localized | undefined, fallback = '—'): string
 	return value[locale] ?? value.sv ?? value.en ?? Object.values(value)[0] ?? fallback;
 }
 
+/** Adds a consistent copy suffix while keeping identical translations identical. */
+export function copiedLocalizedTitle(value: Localized): Localized {
+	const swedish = `${value.sv ?? ''} (kopia)`;
+	return {
+		...value,
+		sv: swedish,
+		en: value.sv === value.en ? swedish : `${value.en ?? value.sv ?? ''} (copy)`
+	};
+}
+
 export function dateTime(value: string | Date): string {
 	return new Intl.DateTimeFormat(getLocale(), {
 		dateStyle: 'medium',

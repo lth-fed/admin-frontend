@@ -1,17 +1,19 @@
 <script lang="ts">
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getTicketKind, listGroupTree, saveTicketKind } from '$lib/api/admin';
+	import { getActivity, getTicketKind, listGroupTree, saveTicketKind } from '$lib/api/admin';
 	import { ApiError, frontendError } from '$lib/api/client';
+	import { defaultTicketRelease, ticketReleaseIsTooSoon } from '$lib/activity-form';
 	import { loadAddonNameOptions } from '$lib/addon-names';
 	import type { Group, PutTicketKind } from '$lib/api/types';
 	import AddonEditor from '$lib/components/AddonEditor.svelte';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
-	import { localize } from '$lib/i18n';
+	import { copiedLocalizedTitle, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import {
 		applyTicketPreset,
+		copyTicketAddons,
 		createDietaryPreferencesAddon,
 		detectTicketPreset,
 		hasDietaryPreferencesAddon,
@@ -33,6 +35,7 @@
 	let loading = $state(false);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+	let invalidField = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let addonNameSuggestions = $state<PutTicketKind['name'][]>([]);
 	let originalTicket = $state<Awaited<ReturnType<typeof getTicketKind>> | null>(null);
@@ -41,11 +44,12 @@
 	let preset = $state<TicketPresetId>('simple');
 	let allocatedFree = $state(false);
 	let allocatedPaidPrice = $state(0);
+	let activityStart = $state('');
 	let form = $state<PutTicketKind>({
 		activity_id: '',
 		name: { sv: '', en: '' },
 		price: 0,
-		purchasing_available_start: new Date().toISOString(),
+		purchasing_available_start: defaultTicketRelease(),
 		purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
 		max_tickets: 1,
 		min_tickets: 0,
@@ -92,11 +96,17 @@
 		error = null;
 		try {
 			if (!id) {
-				[groups, addonNameSuggestions] = await Promise.all([
+				const [groupTree, addonNames, activity] = await Promise.all([
 					listGroupTree(),
-					loadAddonNameOptions()
+					loadAddonNameOptions(),
+					getActivity(activityId)
 				]);
+				groups = groupTree;
+				addonNameSuggestions = addonNames;
+				activityStart = activity.time_start;
 				form.activity_id = activityId;
+				form.allow_transfer_ticket_start = form.purchasing_available_start;
+				form.allow_transfer_ticket_stop = activityStart;
 				savedTicketSnapshot = serializeTicketEditor();
 				return;
 			}
@@ -106,6 +116,7 @@
 				loadAddonNameOptions()
 			]);
 			originalTicket = ticket;
+			activityStart = (await getActivity(ticket.activity_id)).time_start;
 			preset = detectTicketPreset(ticket);
 			allocatedFree = preset === 'allocated' && ticket.price === 0;
 			allocatedPaidPrice = ticket.price;
@@ -237,11 +248,20 @@
 				field: `${m.available_until()} / ${m.transfer_until()}`,
 				message: m.ticket_dates_order()
 			};
+		if (
+			preset !== 'none' &&
+			(!originalTicket ||
+				body.purchasing_available_start !== originalTicket.purchasing_available_start) &&
+			ticketReleaseIsTooSoon(body.purchasing_available_start)
+		)
+			return { field: m.available_from(), message: m.ticket_release_too_soon() };
 		const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 		if (!body.allowed_group_ids.every((groupId) => uuid.test(groupId)))
 			return { field: m.allowed_groups(), message: m.invalid_group_ids() };
-		if ((preset === 'none' || preset === 'allocated') && body.allowed_group_ids.length !== 1)
+		if (preset === 'none' && body.allowed_group_ids.length !== 1)
 			return { field: m.allowed_groups(), message: m.preset_requires_one_group() };
+		if (preset === 'allocated' && body.allowed_group_ids.length === 0)
+			return { field: m.allowed_groups(), message: m.required_fields() };
 		if (!validAddons(addons)) return { field: m.addons(), message: m.ticket_addons_invalid() };
 		return null;
 	}
@@ -281,7 +301,7 @@
 			await saveTicketKind(replacementId, {
 				...body,
 				name: { sv: `${body.name.sv} v2`, en: `${body.name.en} v2` },
-				addons: copiedAddons(body.addons)
+				addons: copyTicketAddons(body.addons)
 			});
 		} catch (cause) {
 			// These are separate HTTP requests. Restore the old sales window if creating v2 fails.
@@ -293,6 +313,7 @@
 	}
 
 	function showValidation(field: string, message: string): void {
+		invalidField = field;
 		error = `${field}: ${message}`;
 		toasts.show('error', error);
 	}
@@ -306,18 +327,22 @@
 
 	function toggleTransfers(enabled: boolean): void {
 		transfersEnabled = enabled;
-		if (
-			enabled &&
-			new Date(form.allow_transfer_ticket_stop) <= new Date(form.allow_transfer_ticket_start)
-		) {
-			form.allow_transfer_ticket_start = new Date().toISOString();
-			form.allow_transfer_ticket_stop = new Date(Date.now() + 31_536_000_000).toISOString();
+		if (enabled) {
+			form.allow_transfer_ticket_start = form.purchasing_available_start;
+			form.allow_transfer_ticket_stop = activityStart;
 		}
+	}
+
+	function updateTicketForm(value: PutTicketKind): void {
+		if (form.allow_transfer_ticket_start === form.purchasing_available_start)
+			value.allow_transfer_ticket_start = value.purchasing_available_start;
+		form = value;
 	}
 
 	function changePreset(next: string | number): void {
 		const selected = String(next) as TicketPresetId;
 		if (selected === preset || bookkeepingOnly) return;
+		const previousPreset = preset;
 		const removesAddons =
 			(selected === 'none' && form.addons.length > 0) ||
 			(selected === 'free' &&
@@ -325,6 +350,7 @@
 		if (removesAddons && !confirm(m.preset_removes_addons())) return;
 		preset = selected;
 		form = { ...form, ...applyTicketPreset(form, selected) };
+		if (previousPreset === 'none' && selected !== 'none') toggleTransfers(true);
 		limitMaximum = form.max_tickets !== I32_MAX;
 		if (selected === 'allocated') {
 			allocatedPaidPrice = form.price;
@@ -346,18 +372,11 @@
 		form.addons = setDietaryPreferencesAddon(form.addons, enabled);
 	}
 
-	function copiedAddons(addons: PutTicketKind['addons']): PutTicketKind['addons'] {
-		return $state.snapshot(addons).map((addon) => ({
-			...addon,
-			id: crypto.randomUUID(),
-			options: addon.options.map((option) => ({ ...option, id: crypto.randomUUID() }))
-		}));
-	}
-
 	async function submit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		saving = true;
 		error = null;
+		invalidField = null;
 		const addons = $state.snapshot(form.addons);
 		const body: PutTicketKind = {
 			...form,
@@ -415,11 +434,8 @@
 			const copy = $state.snapshot(form);
 			await saveTicketKind(ticketId, {
 				...copy,
-				name: {
-					sv: `${copy.name.sv} (kopia)`,
-					en: `${copy.name.en} (copy)`
-				},
-				addons: copiedAddons(copy.addons)
+				name: copiedLocalizedTitle(copy.name),
+				addons: copyTicketAddons(copy.addons)
 			});
 			allowNavigation = true;
 			await goto(resolve('/tickets/[id]', { id: ticketId }));
@@ -452,8 +468,9 @@
 		{/if}
 		<a
 			class="button-link secondary"
-			href={form.activity_id ? resolve('/activities/[id]', { id: form.activity_id }) : resolve('/')}
-			><ArrowLeft size={18} /> {m.back()}</a>
+			href={form.activity_id
+				? resolve('/activities/[id]?tab=tickets', { id: form.activity_id })
+				: resolve('/')}><ArrowLeft size={18} /> {m.back()}</a>
 	</div>
 </header>
 
@@ -484,14 +501,18 @@
 			<TicketFields
 				value={form}
 				{groups}
+				{invalidField}
 				showName={preset !== 'none'}
 				showPrice={preset !== 'none' &&
 					preset !== 'free' &&
 					!(preset === 'allocated' && allocatedFree)}
 				showDates={preset !== 'none'}
+				showInvitedToggle={preset === 'allocated'}
+				invited={allocatedFree}
 				capacityLabel={preset === 'free' || preset === 'simple' ? m.maximum_tickets() : undefined}
-				singleGroup={preset === 'none' || preset === 'allocated'}
-				onchange={(value) => (form = value)} />
+				singleGroup={preset === 'none'}
+				oninvitedchange={toggleAllocatedFree}
+				onchange={updateTicketForm} />
 			<div class="grid-2">
 				{#if preset === 'allocated' || preset === 'advanced'}
 					<label class="field"
@@ -509,14 +530,8 @@
 						{/if}
 					</div>
 				{/if}
-				{#if preset === 'allocated'}
-					<label class="switch-field">
-						<Switch value={allocatedFree} onchange={({ value }) => toggleAllocatedFree(value)} />
-						<span>{m.invited_ticket()}</span>
-					</label>
-				{/if}
 			</div>
-			{#if preset === 'advanced'}<div class="stack transfer-settings">
+			{#if preset !== 'none'}<div class="stack transfer-settings">
 					<label class="switch-field">
 						<Switch value={transfersEnabled} onchange={({ value }) => toggleTransfers(value)} />
 						<span>{m.allow_transfers()}</span>

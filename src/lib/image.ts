@@ -2,6 +2,15 @@ import { api, responseData } from '$lib/api/client';
 import * as m from '$lib/paraglide/messages';
 import { toasts } from '$lib/toasts.svelte';
 
+const IMAGE_CONTENT_TYPES: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	webp: 'image/webp',
+	avif: 'image/avif',
+	svg: 'image/svg+xml'
+};
+
 export async function resizeImage(file: File, maxDimension = 1920): Promise<File> {
 	const image = await createImageBitmap(file);
 	const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
@@ -27,8 +36,8 @@ export async function resizeImage(file: File, maxDimension = 1920): Promise<File
 export async function uploadImage(file: File): Promise<string> {
 	const upload = file.size < 1_000_000 ? file : await resizeImage(file);
 	const extension = upload.name.split('.').pop()?.toLowerCase() ?? '';
-	if (!['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(extension))
-		throw new Error('Unsupported image format');
+	const contentType = IMAGE_CONTENT_TYPES[extension];
+	if (!contentType) throw new Error('Unsupported image format');
 	const allowance = responseData(await api.POST('/admin/upload-image', { body: { extension } }));
 	if (upload.size > allowance.max_size_bytes) throw new Error('The image is too large');
 
@@ -37,7 +46,7 @@ export async function uploadImage(file: File): Promise<string> {
 	for (const [key, value] of Object.entries(allowance.dynamic_fields)) {
 		// A range constrains the policy; it is not an S3 multipart form field.
 		if (key.toLowerCase() === 'content-length-range') continue;
-		form.append(key, key.toLowerCase() === 'content-type' ? upload.type : value);
+		form.append(key, key.toLowerCase() === 'content-type' ? contentType : value);
 	}
 	form.set('key', allowance.key);
 	form.append('file', upload);
