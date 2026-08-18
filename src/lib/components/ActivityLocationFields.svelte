@@ -54,17 +54,19 @@
 				oninput={(event) => onchange({ ...value, url: event.currentTarget.value })} /></label>
 		<div class="grid-2">
 			<label class:field-error={invalidField?.includes(m.latitude())} class="field"
-				><span>{m.latitude()}</span><input
-					type="number"
+				><span>{m.latitude_north()}</span><input
+					type="text"
 					aria-invalid={invalidField?.includes(m.latitude())}
-					step="any"
+					inputmode="decimal"
+					placeholder="55.71031 or 55°42′37.1″N"
 					value={north}
 					oninput={(event) => onnorthchange(event.currentTarget.value)} /></label
 			><label class:field-error={invalidField?.includes(m.longitude())} class="field"
-				><span>{m.longitude()}</span><input
-					type="number"
+				><span>{m.longitude_east()}</span><input
+					type="text"
 					aria-invalid={invalidField?.includes(m.longitude())}
-					step="any"
+					inputmode="decimal"
+					placeholder="13.21017 or 13°12′36.6″E"
 					value={east}
 					oninput={(event) => oneastchange(event.currentTarget.value)} /></label>
 		</div>

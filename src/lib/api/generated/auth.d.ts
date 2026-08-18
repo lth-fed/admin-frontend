@@ -132,6 +132,56 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/revoke': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path?: never;
+				cookie?: never;
+			};
+			requestBody: {
+				content: {
+					'application/x-www-form-urlencoded': components['schemas']['RevokeRequest'];
+				};
+			};
+			responses: {
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content?: never;
+				};
+				400: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['OAuth2Error'];
+					};
+				};
+				500: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content?: never;
+				};
+			};
+		};
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/userinfo': {
 		parameters: {
 			query?: never;
@@ -382,7 +432,13 @@ export interface components {
 			| 'request_not_supported'
 			| 'request_uri_not_supported'
 			| 'registration_not_supported'
-			| 'internal';
+			| 'internal'
+			| 'server_callback_failed';
+		/** RevokeRequest */
+		RevokeRequest: {
+			/** Format: uuid */
+			token: string;
+		};
 		/** TokenBody */
 		TokenBody: {
 			grant_type: string;

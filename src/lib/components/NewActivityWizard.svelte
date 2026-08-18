@@ -40,6 +40,7 @@
 	import { toasts } from '$lib/toasts.svelte';
 	import { ArrowLeft, Plus, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
+	import { parseCoordinate } from '$lib/coordinates';
 
 	type TicketDraft = {
 		id: string;
@@ -64,7 +65,7 @@
 		m.creation_step_tickets(),
 		m.creation_step_notifications()
 	];
-	let step = $state(activityTabIndex(page.url));
+	let step = $derived(activityTabIndex(page.url));
 	let loading = $state(true);
 	let saving = $state(false);
 	let uploading = $state(false);
@@ -120,12 +121,9 @@
 		void load();
 	});
 
-	$effect(() => {
-		step = activityTabIndex(page.url);
-	});
-
 	function changeStep(index: number): void {
 		if (index === step) return;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
 		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
 	}
 
@@ -229,9 +227,9 @@
 		if (index === 1) {
 			if ((north && !east) || (!north && east))
 				return showError(m.coordinates_together(), `${m.latitude()} / ${m.longitude()}`);
-			if (north && (!Number.isFinite(Number(north)) || Math.abs(Number(north)) > 90))
+			if (north && parseCoordinate(north, 'north') === null)
 				return showError(m.invalid_coordinates(), m.latitude());
-			if (east && (!Number.isFinite(Number(east)) || Math.abs(Number(east)) > 180))
+			if (east && parseCoordinate(east, 'east') === null)
 				return showError(m.invalid_coordinates(), m.longitude());
 		}
 		if (index === 2) {
@@ -393,12 +391,17 @@
 		saving = true;
 		error = null;
 		try {
+			const parsedNorth = parseCoordinate(north, 'north');
+			const parsedEast = parseCoordinate(east, 'east');
 			await saveActivity(activityId, {
 				...activity,
 				location: {
 					...activity.location,
 					url: activity.location.url || undefined,
-					coordinate_wgs84: north && east ? { north: Number(north), east: Number(east) } : undefined
+					coordinate_wgs84:
+						typeof parsedNorth === 'number' && typeof parsedEast === 'number'
+							? { north: parsedNorth, east: parsedEast }
+							: undefined
 				},
 				host_ids: []
 			});

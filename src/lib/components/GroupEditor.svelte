@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import {
 		addAdmin,
 		addGroupRelation,
@@ -31,8 +32,10 @@
 		PutNotification
 	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
+	import { groupTabIndex, groupTabUrl, isGroupTabNavigation } from '$lib/group-tabs';
 	import { dateTime, localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
+	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import RelationList from '$lib/components/RelationList.svelte';
 	import UserList from '$lib/components/UserList.svelte';
@@ -67,6 +70,13 @@
 	let notificationSaving = $state(false);
 	let deletingNotificationId = $state<string | null>(null);
 	let allowNavigation = $state(false);
+	let editorTab = $derived(groupTabIndex(page.url));
+	const editorTabs = [
+		m.group_details(),
+		m.scheduled_notifications(),
+		m.members(),
+		m.administrators()
+	];
 	let form = $state<PutGroup>({
 		path: '',
 		name: { sv: '', en: '' },
@@ -84,14 +94,21 @@
 	);
 	const hasUnsavedChanges = $derived(mainFormDirty || notificationDirty);
 
-	beforeNavigate(({ cancel, willUnload }) => {
+	beforeNavigate(({ cancel, from, to, willUnload }) => {
 		if (!hasUnsavedChanges || allowNavigation) return;
+		if (isGroupTabNavigation(from?.url ?? null, to?.url ?? null)) return;
 		if (willUnload) {
 			cancel();
 			return;
 		}
 		if (!confirm(m.unsaved_changes())) cancel();
 	});
+
+	function changeEditorTab(index: number): void {
+		if (index === editorTab) return;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
+		void goto(groupTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+	}
 
 	$effect(() => {
 		if (id) void load();
@@ -406,9 +423,16 @@
 	</div>{:else if error && !form.path}
 	<div class="card card-pad error-banner" role="alert">{error}</div>
 {:else}
+	{#if directAdmin}
+		<ActivityTabs
+			labels={editorTabs}
+			active={editorTab}
+			accessibleLabel={m.group_details()}
+			onchange={changeEditorTab} />
+	{/if}
 	<form class="stack" novalidate onsubmit={submit}>
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
-		{#if directAdmin}
+		{#if directAdmin && editorTab === 0}
 			<section class="card card-pad">
 				<h2 class="section-title">{m.group_details()}</h2>
 				<div class="grid-2">
@@ -459,133 +483,132 @@
 					</div>
 				</details>
 			</section>
-			{#if id}
-				<section class="card card-pad stack">
-					<div class="toolbar between">
-						<h2 class="section-title">{m.scheduled_notifications()}</h2>
-						<button class="button-link secondary" type="button" onclick={newNotification}>
-							<Plus size={16} />
-							{m.new_notification()}
-						</button>
+		{/if}
+		{#if directAdmin && id && editorTab === 1}
+			<section class="card card-pad stack">
+				<div class="toolbar between">
+					<h2 class="section-title">{m.scheduled_notifications()}</h2>
+					<button class="button-link secondary" type="button" onclick={newNotification}>
+						<Plus size={16} />
+						{m.new_notification()}
+					</button>
+				</div>
+				<p class="warning-banner" role="note">{m.group_notification_recipients_warning()}</p>
+				{#if notifications.length === 0}
+					<p class="empty-state">{m.empty()}</p>
+				{:else}
+					<ul class="list">
+						{#each notifications as notification (notification.id)}
+							<li>
+								<div class="list-main">
+									<strong>{localize(notification.title, m.notification())}</strong>
+									<span>{dateTime(notification.send_at)}</span>
+									<span>{localize(notification.content)}</span>
+								</div>
+								<div class="toolbar">
+									<button
+										class="icon-button"
+										type="button"
+										aria-label={m.edit()}
+										onclick={() => editNotification(notification)}>
+										<Pencil size={16} />
+									</button>
+									<button
+										class="icon-button danger-button"
+										type="button"
+										disabled={deletingNotificationId === notification.id}
+										aria-label={m.delete()}
+										onclick={() => void removeNotification(notification)}>
+										<Trash2 size={16} />
+									</button>
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if notificationEditorOpen}
+					<div class="nested-card stack">
+						<h3 class="section-title">
+							{notifications.some((notification) => notification.id === notificationId)
+								? m.edit_notification()
+								: m.new_notification()}
+						</h3>
+						<div class="grid-2">
+							<NotificationFields
+								value={notificationDraft}
+								onchange={(value) => (notificationDraft = value)} />
+						</div>
+						<div class="toolbar">
+							<button
+								class="button-link"
+								type="button"
+								disabled={notificationSaving}
+								onclick={() => void submitNotification()}>
+								{notificationSaving ? m.saving() : m.save_notification()}
+							</button>
+							<button
+								class="button-link secondary"
+								type="button"
+								disabled={notificationSaving}
+								onclick={closeNotificationEditor}>{m.cancel()}</button>
+						</div>
 					</div>
-					<p class="warning-banner" role="note">{m.group_notification_recipients_warning()}</p>
-					{#if notifications.length === 0}
+				{/if}
+			</section>
+		{/if}
+		{#if directAdmin && id && editorTab === 2}<section class="card card-pad grid-2">
+				<RelationList
+					title={m.joiner_groups()}
+					items={joiners}
+					options={tree}
+					onadd={(groupId) => addRelation('joiner-groups', groupId)}
+					onremove={(groupId) =>
+						action(() => removeGroupRelation(id!, 'joiner-groups', groupId), refreshRelations)} />
+				<UserList
+					title={m.members()}
+					items={members}
+					suggestions={userSuggestions}
+					allowCustomId
+					onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
+					onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
+				<div>
+					<h2 class="section-title">{m.member_requests()}</h2>
+					{#if requests.length === 0}
 						<p class="empty-state">{m.empty()}</p>
 					{:else}
-						<ul class="list">
-							{#each notifications as notification (notification.id)}
+						<ul class="list compact-list">
+							{#each requests as userId (userId)}
 								<li>
-									<div class="list-main">
-										<strong>{localize(notification.title, m.notification())}</strong>
-										<span>{dateTime(notification.send_at)}</span>
-										<span>{localize(notification.content)}</span>
-									</div>
+									<span class="mono">{userId}</span>
 									<div class="toolbar">
 										<button
-											class="icon-button"
+											class="button-link secondary"
 											type="button"
-											aria-label={m.edit()}
-											onclick={() => editNotification(notification)}>
-											<Pencil size={16} />
-										</button>
-										<button
-											class="icon-button danger-button"
+											onclick={() => action(() => approveMemberRequest(id!, userId), refreshPeople)}
+											>{m.approve()}</button
+										><button
+											class="button-link secondary danger-button"
 											type="button"
-											disabled={deletingNotificationId === notification.id}
-											aria-label={m.delete()}
-											onclick={() => void removeNotification(notification)}>
-											<Trash2 size={16} />
-										</button>
+											onclick={() => void denyRequest(userId)}>{m.deny()}</button>
 									</div>
 								</li>
 							{/each}
 						</ul>
 					{/if}
-					{#if notificationEditorOpen}
-						<div class="nested-card stack">
-							<h3 class="section-title">
-								{notifications.some((notification) => notification.id === notificationId)
-									? m.edit_notification()
-									: m.new_notification()}
-							</h3>
-							<div class="grid-2">
-								<NotificationFields
-									value={notificationDraft}
-									onchange={(value) => (notificationDraft = value)} />
-							</div>
-							<div class="toolbar">
-								<button
-									class="button-link"
-									type="button"
-									disabled={notificationSaving}
-									onclick={() => void submitNotification()}>
-									{notificationSaving ? m.saving() : m.save_notification()}
-								</button>
-								<button
-									class="button-link secondary"
-									type="button"
-									disabled={notificationSaving}
-									onclick={closeNotificationEditor}>{m.cancel()}</button>
-							</div>
-						</div>
-					{/if}
-				</section>
-			{/if}
-			{#if id}<section class="card card-pad grid-2">
-					<RelationList
-						title={m.joiner_groups()}
-						items={joiners}
-						options={tree}
-						onadd={(groupId) => addRelation('joiner-groups', groupId)}
-						onremove={(groupId) =>
-							action(() => removeGroupRelation(id!, 'joiner-groups', groupId), refreshRelations)} />
-					<UserList
-						title={m.members()}
-						items={members}
-						suggestions={userSuggestions}
-						allowCustomId
-						onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
-						onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
-					<div>
-						<h2 class="section-title">{m.member_requests()}</h2>
-						{#if requests.length === 0}
-							<p class="empty-state">{m.empty()}</p>
-						{:else}
-							<ul class="list compact-list">
-								{#each requests as userId (userId)}
-									<li>
-										<span class="mono">{userId}</span>
-										<div class="toolbar">
-											<button
-												class="button-link secondary"
-												type="button"
-												onclick={() =>
-													action(() => approveMemberRequest(id!, userId), refreshPeople)}
-												>{m.approve()}</button
-											><button
-												class="button-link secondary danger-button"
-												type="button"
-												onclick={() => void denyRequest(userId)}>{m.deny()}</button>
-										</div>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					</div>
-					<RelationList
-						title={m.activity_admin_groups()}
-						items={activityAdmins}
-						options={tree}
-						inheritDescendants
-						onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
-						onremove={(groupId) =>
-							action(
-								() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
-								refreshRelations
-							)} />
-				</section>{/if}
-		{/if}
-		{#if id}
+				</div>
+				<RelationList
+					title={m.activity_admin_groups()}
+					items={activityAdmins}
+					options={tree}
+					inheritDescendants
+					onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
+					onremove={(groupId) =>
+						action(
+							() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
+							refreshRelations
+						)} />
+			</section>{/if}
+		{#if id && (!directAdmin || editorTab === 3)}
 			<section class="card card-pad">
 				<UserList
 					title={m.administrators()}
@@ -596,7 +619,7 @@
 					onremove={removeAdministrator} />
 			</section>
 		{/if}
-		{#if directAdmin}<div class="editor-action-dock">
+		{#if directAdmin && editorTab === 0}<div class="editor-action-dock">
 				<button class="button-link" type="submit" disabled={saving}
 					>{saving ? m.saving() : m.save()}</button
 				><button

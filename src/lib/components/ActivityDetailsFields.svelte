@@ -2,6 +2,7 @@
 	import type { Group, PutActivity } from '$lib/api/types';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
+	import LocalizedMarkdownField from '$lib/components/LocalizedMarkdownField.svelte';
 	import { localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { Select } from '@svar-ui/svelte-core';
@@ -52,11 +53,10 @@
 			errorSv={invalidField === m.title_sv()}
 			errorEn={invalidField === m.title_en()}
 			onchange={(title) => onchange({ ...value, title })} />
-		<LocalizedField
+		<LocalizedMarkdownField
 			value={value.description}
 			labelSv={m.description_sv()}
 			labelEn={m.description_en()}
-			multiline
 			required
 			errorSv={invalidField === m.description_sv()}
 			errorEn={invalidField === m.description_en()}

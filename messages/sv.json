@@ -68,6 +68,8 @@
 	"location_url": "Platslänk",
 	"latitude": "Latitud",
 	"longitude": "Longitud",
+	"latitude_north": "Latitud / nord",
+	"longitude_east": "Longitud / öst",
 	"responsible_name": "Ansvarigs namn",
 	"responsible_contact": "Ansvarigs kontakt",
 	"email": "E-post",

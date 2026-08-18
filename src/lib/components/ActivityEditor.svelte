@@ -56,6 +56,7 @@
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
+	import { parseCoordinate } from '$lib/coordinates';
 
 	const I32_MAX = 2_147_483_647;
 	type ValidationIssue = { field: string; message: string };
@@ -88,7 +89,7 @@
 	let userSuggestions = $state<AdminUser[]>([]);
 	let detailedTicketKinds = $state<TicketKind[]>([]);
 	let purchases = $state<PurchasedTicket[]>([]);
-	let editorTab = $state(activityTabIndex(page.url));
+	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
 	let visibilitySaving = $state(false);
 	let notificationSaving = $state(false);
@@ -160,12 +161,9 @@
 		void load();
 	});
 
-	$effect(() => {
-		editorTab = activityTabIndex(page.url);
-	});
-
 	function changeEditorTab(index: number): void {
 		if (index === editorTab) return;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
 		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
 	}
 
@@ -343,9 +341,9 @@
 			return issue(m.creator(), m.admin_host_required());
 		if ((north && !east) || (!north && east))
 			return issue(`${m.latitude()} / ${m.longitude()}`, m.coordinates_together());
-		if (north && (!Number.isFinite(Number(north)) || Math.abs(Number(north)) > 90))
+		if (north && parseCoordinate(north, 'north') === null)
 			return issue(m.latitude(), m.invalid_coordinates());
-		if (east && (!Number.isFinite(Number(east)) || Math.abs(Number(east)) > 180))
+		if (east && parseCoordinate(east, 'east') === null)
 			return issue(m.longitude(), m.invalid_coordinates());
 		if (form.location.url) {
 			try {
@@ -557,7 +555,12 @@
 			const keepsAdminAccess = adminGroupIds.some(
 				(groupId) => groupId === form.creator_id || form.host_ids.includes(groupId)
 			);
-			const coordinate = north && east ? { north: Number(north), east: Number(east) } : undefined;
+			const parsedNorth = parseCoordinate(north, 'north');
+			const parsedEast = parseCoordinate(east, 'east');
+			const coordinate =
+				typeof parsedNorth === 'number' && typeof parsedEast === 'number'
+					? { north: parsedNorth, east: parsedEast }
+					: undefined;
 			await saveActivity(activityId, {
 				...form,
 				is_hidden: isHidden,

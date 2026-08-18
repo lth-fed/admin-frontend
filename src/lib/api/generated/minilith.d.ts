@@ -1400,6 +1400,7 @@ export interface paths {
 		 *     - webp
 		 *     - png
 		 *     - avif
+		 *     - svg
 		 *
 		 *     Notably, no GIF support.
 		 *
@@ -3438,8 +3439,97 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List all groups the user is a direct or transitive member of. Useful for setting the filters
+		 * List all groups the user is a direct or transitive member of.
 		 *     for groups.
+		 * @description # Errors
+		 *
+		 *     DB, AUTH
+		 */
+		get: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path?: never;
+				cookie?: never;
+			};
+			requestBody?: never;
+			responses: {
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['FatGroup'][];
+					};
+				};
+				/** @description This is for user input errors. */
+				400: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description This is for auth errors. This usually requires re-login. */
+				401: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description This is for client application errors. */
+				403: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/**
+				 * @description This is for when the user requests something that doesn't exist. Probably cache invalidaton
+				 *     issue.
+				 */
+				404: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description Shit went down and the team is scrambling to fix it. */
+				500: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+			};
+		};
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/groups/for-filters': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List all groups the user has visibility/notification settings for and groups with events
+		 *     in the future or recent path.
 		 * @description # Errors
 		 *
 		 *     DB, AUTH
@@ -5599,6 +5689,25 @@ export interface components {
 			 * @description In ören.
 			 */
 			total: number;
+		};
+		/** FatGroup */
+		FatGroup: {
+			/** Format: uuid */
+			id: string;
+			/** Format: group_path */
+			path: string;
+			limit_membership_visibility: boolean;
+			name: {
+				[key: string]: string;
+			};
+			description: {
+				[key: string]: string;
+			};
+			deleted: boolean;
+			/** Format: uuid */
+			logo_id: string;
+			logo_url: string;
+			admin_ids?: string[];
 		};
 		/** Group */
 		Group: {

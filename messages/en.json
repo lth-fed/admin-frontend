@@ -67,6 +67,8 @@
 	"location_url": "Location link",
 	"latitude": "Latitude",
 	"longitude": "Longitude",
+	"latitude_north": "Latitude / north",
+	"longitude_east": "Longitude / east",
 	"responsible_name": "Responsible name",
 	"responsible_contact": "Responsible contact",
 	"email": "Email",
