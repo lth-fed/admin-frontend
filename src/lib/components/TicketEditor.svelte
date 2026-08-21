@@ -2,7 +2,14 @@
 	import { beforeNavigate, goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { getActivity, getTicketKind, listGroupTree, saveTicketKind } from '$lib/api/admin';
+	import {
+		deleteTicketKind,
+		getActivity,
+		getTicketKind,
+		listActivityTicketKinds,
+		listGroupTree,
+		saveTicketKind
+	} from '$lib/api/admin';
 	import { ApiError, frontendError } from '$lib/api/client';
 	import { defaultTicketRelease, ticketReleaseIsTooSoon } from '$lib/activity-form';
 	import { loadAddonNameOptions } from '$lib/addon-names';
@@ -20,11 +27,12 @@
 		hasDietaryPreferencesAddon,
 		isDietaryPreferencesAddon,
 		setDietaryPreferencesAddon,
+		ticketAddonDataKey,
 		type TicketPresetId,
 		UNLIMITED_TICKETS
 	} from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
-	import { ArrowLeft, Copy } from '@lucide/svelte';
+	import { ArrowLeft, Copy, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { onMount } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -40,6 +48,8 @@
 	let invalidField = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let addonNameSuggestions = $state<PutTicketKind['name'][]>([]);
+	let reusableAddons = $state<PutTicketKind['addons']>([]);
+	let overriddenAddonIds = $state<string[]>([]);
 	let originalTicket = $state<Awaited<ReturnType<typeof getTicketKind>> | null>(null);
 	let limitMaximum = $state(false);
 	let transfersEnabled = $state(true);
@@ -74,6 +84,25 @@
 			new Date(originalTicket.purchasing_available_stop).getTime() <= now
 		)
 	);
+	const canDelete = $derived(
+		Boolean(
+			originalTicket &&
+			!originalTicket.has_been_purchased &&
+			!originalTicket.has_been_released &&
+			new Date(originalTicket.purchasing_available_start).getTime() > now + 20 * 60_000
+		)
+	);
+	const lockedAddonIds = $derived(
+		form.addons
+			.filter(
+				(addon) =>
+					!overriddenAddonIds.includes(addon.id) &&
+					reusableAddons.some(
+						(candidate) => ticketAddonDataKey(candidate) === ticketAddonDataKey(addon)
+					)
+			)
+			.map((addon) => addon.id)
+	);
 
 	onMount(() => {
 		const timer = window.setInterval(() => (now = Date.now()), 30_000);
@@ -98,11 +127,16 @@
 		error = null;
 		try {
 			if (!id) {
-				const [groupTree, addonNames, activity] = await Promise.all([
+				const [groupTree, addonNames, activity, activityTickets] = await Promise.all([
 					listGroupTree(),
 					loadAddonNameOptions(),
-					getActivity(activityId)
+					getActivity(activityId),
+					listActivityTicketKinds(activityId)
 				]);
+				reusableAddons = (
+					await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)))
+				).flatMap((ticket) => structuredClone(ticket.available_addons));
+				form.addons = setDietaryPreferencesAddon([], true, reusableAddons);
 				groups = groupTree;
 				addonNameSuggestions = addonNames;
 				activityStart = activity.time_start;
@@ -118,7 +152,18 @@
 				loadAddonNameOptions()
 			]);
 			originalTicket = ticket;
-			activityStart = (await getActivity(ticket.activity_id)).time_start;
+			const [activity, activityTickets] = await Promise.all([
+				getActivity(ticket.activity_id),
+				listActivityTicketKinds(ticket.activity_id)
+			]);
+			activityStart = activity.time_start;
+			reusableAddons = (
+				await Promise.all(
+					activityTickets
+						.filter((activityTicket) => activityTicket.id !== ticket.ticket_kind_id)
+						.map((activityTicket) => getTicketKind(activityTicket.id))
+				)
+			).flatMap((activityTicket) => structuredClone(activityTicket.available_addons));
 			preset = detectTicketPreset(ticket);
 			allocatedFree = preset === 'allocated' && ticket.price === 0;
 			allocatedPaidPrice = ticket.price;
@@ -140,7 +185,7 @@
 			const duplicatedTicket = (page.state as DuplicateTicketNavigationState).duplicatedTicket;
 			form =
 				duplicatedTicket?.activity_id === ticket.activity_id
-					? structuredClone(duplicatedTicket)
+					? structuredClone($state.snapshot(duplicatedTicket))
 					: loadedForm;
 			if (duplicatedTicket) replaceState(resolve('/tickets/[id]', { id }), {});
 			groups = groupTree;
@@ -377,7 +422,7 @@
 	}
 
 	function toggleDietaryPreferences(enabled: boolean): void {
-		form.addons = setDietaryPreferencesAddon(form.addons, enabled);
+		form.addons = setDietaryPreferencesAddon(form.addons, enabled, reusableAddons);
 	}
 
 	async function submit(event: SubmitEvent): Promise<void> {
@@ -462,6 +507,29 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	async function removeTicketKind(): Promise<void> {
+		if (!id || !canDelete || !confirm(m.delete_ticket_kind_confirm())) return;
+		saving = true;
+		error = null;
+		try {
+			await deleteTicketKind(id);
+			allowNavigation = true;
+			await goto(resolve('/activities/[id]?tab=tickets', { id: form.activity_id }), {
+				replaceState: true
+			});
+		} catch (cause) {
+			allowNavigation = false;
+			error = frontendError(cause);
+		} finally {
+			saving = false;
+		}
+	}
+
+	function overrideSharedAddon(addonId: string): void {
+		if (!confirm(m.override_shared_addon_confirm())) return;
+		overriddenAddonIds = [...overriddenAddonIds, addonId];
 	}
 </script>
 
@@ -589,12 +657,28 @@
 		{#if preset === 'simple' || preset === 'allocated' || preset === 'advanced'}
 			<AddonEditor
 				addons={form.addons}
+				{reusableAddons}
+				{lockedAddonIds}
 				suggestions={addonNameSuggestions}
 				disabled={bookkeepingOnly}
+				onoverride={overrideSharedAddon}
 				onchange={(addons) => (form.addons = addons)} />
 		{/if}
 
-		<button class="button-link" type="submit" disabled={saving}
-			>{saving ? m.saving() : m.save()}</button>
+		<div class="editor-action-dock">
+			<button class="button-link" type="submit" disabled={saving}
+				>{saving ? m.saving() : m.save()}</button>
+			{#if id}
+				<button
+					class="button-link secondary danger-button"
+					type="button"
+					disabled={saving || !canDelete}
+					title={canDelete ? undefined : m.delete_ticket_kind_unavailable()}
+					onclick={() => void removeTicketKind()}>
+					<Trash2 size={17} />
+					{m.delete_ticket_kind()}
+				</button>
+			{/if}
+		</div>
 	</form>
 {/if}

@@ -1130,7 +1130,78 @@ export interface paths {
 			};
 		};
 		post?: never;
-		delete?: never;
+		/**
+		 * Deletes a ticket kind only while it is still safe to withdraw: it must
+		 *     have no buyers, never have been released, and release must be more than
+		 *     twenty minutes away.
+		 */
+		delete: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path: {
+					id: string;
+				};
+				cookie?: never;
+			};
+			requestBody?: never;
+			responses: {
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content?: never;
+				};
+				/** @description This is for user input errors. */
+				400: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description This is for auth errors. This usually requires re-login. */
+				401: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description This is for client application errors. */
+				403: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/**
+				 * @description This is for when the user requests something that doesn't exist. Probably cache invalidaton
+				 *     issue.
+				 */
+				404: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+				/** @description Shit went down and the team is scrambling to fix it. */
+				500: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						'application/json; charset=utf-8': components['schemas']['MinilithError'];
+					};
+				};
+			};
+		};
 		options?: never;
 		head?: never;
 		patch?: never;

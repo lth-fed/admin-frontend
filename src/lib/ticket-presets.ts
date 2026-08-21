@@ -10,7 +10,9 @@ type PresetShape = Pick<
 	'price' | 'max_tickets' | 'min_tickets' | 'allowed_group_ids' | 'addons'
 >;
 
-export function createDietaryPreferencesAddon(): TicketAddon {
+export function createDietaryPreferencesAddon(existingAddons: TicketAddon[] = []): TicketAddon {
+	const existing = existingAddons.find(hasDietaryPreferencesName);
+	if (existing) return copyTicketAddon(existing);
 	return {
 		id: crypto.randomUUID(),
 		name: { sv: 'Matpreferens', en: 'Dietary preferences' },
@@ -19,6 +21,13 @@ export function createDietaryPreferencesAddon(): TicketAddon {
 		required: false,
 		options: []
 	};
+}
+
+function hasDietaryPreferencesName(addon: TicketAddon): boolean {
+	return (
+		addon.name.sv.trim().toLocaleLowerCase() === 'matpreferens' &&
+		addon.name.en.trim().toLocaleLowerCase() === 'dietary preferences'
+	);
 }
 
 export function isDietaryPreferencesAddon(addon: TicketAddon): boolean {
@@ -33,18 +42,29 @@ export function isDietaryPreferencesAddon(addon: TicketAddon): boolean {
 }
 
 export function hasDietaryPreferencesAddon(addons: TicketAddon[]): boolean {
-	return addons.some(isDietaryPreferencesAddon);
+	return addons.some(hasDietaryPreferencesName);
 }
 
 /** Adds or removes the standard dietary question without touching custom addons. */
-export function setDietaryPreferencesAddon(addons: TicketAddon[], enabled: boolean): TicketAddon[] {
-	const withoutDietary = addons.filter((addon) => !isDietaryPreferencesAddon(addon));
-	return enabled ? [...withoutDietary, createDietaryPreferencesAddon()] : withoutDietary;
+export function setDietaryPreferencesAddon(
+	addons: TicketAddon[],
+	enabled: boolean,
+	existingAddons: TicketAddon[] = []
+): TicketAddon[] {
+	const withoutDietary = addons.filter((addon) => !hasDietaryPreferencesName(addon));
+	return enabled
+		? [...withoutDietary, createDietaryPreferencesAddon(existingAddons)]
+		: withoutDietary;
 }
 
 /** Copies addons with fresh IDs so they can belong to an independent ticket kind. */
 export function copyTicketAddons(addons: TicketAddon[]): TicketAddon[] {
-	return addons.map((addon) => ({
+	return addons.map(copyTicketAddon);
+}
+
+/** Copies one addon with fresh IDs for reuse by another ticket kind. */
+export function copyTicketAddon(addon: TicketAddon): TicketAddon {
+	return {
 		...addon,
 		id: crypto.randomUUID(),
 		name: { ...addon.name },
@@ -55,7 +75,37 @@ export function copyTicketAddons(addons: TicketAddon[]): TicketAddon[] {
 			bookkeeping_prices: [...option.bookkeeping_prices],
 			bookkeeping_price_categories: [...option.bookkeeping_price_categories]
 		}))
-	}));
+	};
+}
+
+/** Identifies frontend-shared addons independently of their per-ticket database IDs. */
+export function ticketAddonDataKey(addon: TicketAddon): string {
+	return JSON.stringify({
+		name: addon.name,
+		multiple_alternatives: addon.multiple_alternatives,
+		has_text_field: addon.has_text_field,
+		required: addon.required,
+		options: addon.options.map((option) => ({
+			idx: option.idx,
+			name: option.name,
+			price: option.price,
+			bookkeeping_prices: option.bookkeeping_prices,
+			bookkeeping_price_categories: option.bookkeeping_price_categories
+		}))
+	});
+}
+
+/** Applies shared addon data while retaining IDs owned by the destination ticket kind. */
+export function applySharedTicketAddon(source: TicketAddon, destination: TicketAddon): TicketAddon {
+	return {
+		...structuredClone(source),
+		id: destination.id,
+		options: source.options.map((option, index) => ({
+			...structuredClone(option),
+			id: destination.options[index]?.id ?? crypto.randomUUID(),
+			idx: index
+		}))
+	};
 }
 
 function addonsWithDietaryPreferencesDefault(addons: TicketAddon[]): TicketAddon[] {

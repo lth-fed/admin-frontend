@@ -31,6 +31,7 @@
 		Group,
 		PutActivity,
 		PutNotification,
+		PutTicketKind,
 		PurchasedTicket,
 		ReportRequest,
 		TicketKind,
@@ -38,6 +39,7 @@
 	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
+	import AddonEditor from '$lib/components/AddonEditor.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
@@ -52,6 +54,7 @@
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
 	import { copyTicketAddons } from '$lib/ticket-presets';
+	import { applySharedAddonChanges, sharedTicketAddons } from '$lib/shared-addons';
 	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -91,7 +94,7 @@
 	let purchases = $state<PurchasedTicket[]>([]);
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
-	let visibilitySaving = $state(false);
+	let sharedAddons = $state<PutTicketKind['addons']>([]);
 	let notificationSaving = $state(false);
 	let deletingNotificationKey = $state<string | null>(null);
 	let notificationTarget = $state('$all');
@@ -168,7 +171,7 @@
 	}
 
 	function serializeActivity(): string {
-		return JSON.stringify({ form, north, east, limitCapacity });
+		return JSON.stringify({ form, north, east, limitCapacity, sharedAddons });
 	}
 
 	function serializeVisibility(): string {
@@ -249,6 +252,7 @@
 						).flat()
 					: [];
 				detailedTicketKinds = kinds;
+				sharedAddons = sharedTicketAddons(kinds.map((kind) => kind.available_addons));
 				visibilityGroupIds = [
 					...new Set(
 						kinds.filter((kind) => kind.max_tickets === 0).flatMap((kind) => kind.allowed_group_ids)
@@ -466,57 +470,84 @@
 		}
 	}
 
-	async function saveVisibilityAccess(): Promise<void> {
-		if (!id || !canEdit) return;
-		visibilitySaving = true;
-		error = null;
-		try {
-			const accessKinds = detailedTicketKinds.filter((kind) => kind.max_tickets === 0);
-			const assigned = new SvelteSet<string>();
-			for (const kind of accessKinds) {
-				const groupId = visibilityGroupIds.find((candidate) => !assigned.has(candidate));
-				if (groupId) assigned.add(groupId);
-				await saveTicketKind(kind.ticket_kind_id, {
-					activity_id: id,
-					name: { sv: 'null', en: 'null' },
-					price: 0,
-					purchasing_available_start: kind.purchasing_available_start,
-					purchasing_available_stop: kind.purchasing_available_stop,
-					max_tickets: 0,
-					min_tickets: 0,
-					allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
-					allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-					allow_transfer_ticket_bypass_allowed_groups: false,
-					allowed_group_ids: groupId ? [groupId] : [],
-					addons: []
-				});
-			}
-			for (const groupId of visibilityGroupIds.filter((candidate) => !assigned.has(candidate))) {
-				const ticketId = crypto.randomUUID();
-				const now = new Date().toISOString();
-				await saveTicketKind(ticketId, {
-					activity_id: id,
-					name: { sv: 'null', en: 'null' },
-					price: 0,
-					purchasing_available_start: now,
-					purchasing_available_stop: now,
-					max_tickets: 0,
-					min_tickets: 0,
-					allow_transfer_ticket_start: now,
-					allow_transfer_ticket_stop: now,
-					allow_transfer_ticket_bypass_allowed_groups: false,
-					allowed_group_ids: [groupId],
-					addons: []
-				});
-			}
-			toasts.show('success', m.backend_success());
-			await load();
-			savedVisibilitySnapshot = serializeVisibility();
-		} catch (cause) {
-			error = frontendError(cause);
-		} finally {
-			visibilitySaving = false;
+	function ticketKindBody(
+		kind: TicketKind,
+		addons: PutTicketKind['addons'] = kind.available_addons
+	): PutTicketKind {
+		return {
+			activity_id: kind.activity_id,
+			name: kind.ticket_kind_name,
+			price: kind.price,
+			purchasing_available_start: kind.purchasing_available_start,
+			purchasing_available_stop: kind.purchasing_available_stop,
+			max_tickets: kind.max_tickets,
+			min_tickets: kind.min_tickets,
+			allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
+			allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
+			allow_transfer_ticket_bypass_allowed_groups: kind.allow_transfer_ticket_bypass_allowed_groups,
+			allowed_group_ids: kind.allowed_group_ids,
+			addons
+		};
+	}
+
+	async function persistSharedAddons(): Promise<void> {
+		const addonLists = $state.snapshot(detailedTicketKinds.map((kind) => kind.available_addons));
+		const previous = sharedTicketAddons(addonLists);
+		const updated = applySharedAddonChanges(addonLists, previous, $state.snapshot(sharedAddons));
+		for (const [index, kind] of detailedTicketKinds.entries()) {
+			if (JSON.stringify(updated[index]) === JSON.stringify(kind.available_addons)) continue;
+			await saveTicketKind(kind.ticket_kind_id, ticketKindBody(kind, updated[index]));
+			kind.available_addons = updated[index];
 		}
+	}
+
+	async function persistVisibilityAccess(activityId: string): Promise<void> {
+		const accessKinds = detailedTicketKinds.filter((kind) => kind.max_tickets === 0);
+		const assigned = new SvelteSet<string>();
+		for (const kind of accessKinds) {
+			const groupId = visibilityGroupIds.find((candidate) => !assigned.has(candidate));
+			if (groupId) assigned.add(groupId);
+			await saveTicketKind(kind.ticket_kind_id, {
+				activity_id: activityId,
+				name: { sv: 'null', en: 'null' },
+				price: 0,
+				purchasing_available_start: kind.purchasing_available_start,
+				purchasing_available_stop: kind.purchasing_available_stop,
+				max_tickets: 0,
+				min_tickets: 0,
+				allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
+				allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
+				allow_transfer_ticket_bypass_allowed_groups: false,
+				allowed_group_ids: groupId ? [groupId] : [],
+				addons: []
+			});
+		}
+		for (const groupId of visibilityGroupIds.filter((candidate) => !assigned.has(candidate))) {
+			const ticketId = crypto.randomUUID();
+			const now = new Date().toISOString();
+			await saveTicketKind(ticketId, {
+				activity_id: activityId,
+				name: { sv: 'null', en: 'null' },
+				price: 0,
+				purchasing_available_start: now,
+				purchasing_available_stop: now,
+				max_tickets: 0,
+				min_tickets: 0,
+				allow_transfer_ticket_start: now,
+				allow_transfer_ticket_stop: now,
+				allow_transfer_ticket_bypass_allowed_groups: false,
+				allowed_group_ids: [groupId],
+				addons: []
+			});
+		}
+		const activityTickets = await listActivityTicketKinds(activityId);
+		tickets = activityTickets;
+		detailedTicketKinds = await Promise.all(
+			activityTickets.map((ticket) => getTicketKind(ticket.id))
+		);
+		sharedAddons = sharedTicketAddons(
+			$state.snapshot(detailedTicketKinds.map((kind) => kind.available_addons))
+		);
 	}
 
 	async function chooseImage(event: Event): Promise<void> {
@@ -574,8 +605,13 @@
 					coordinate_wgs84: coordinate
 				}
 			});
+			if (id) {
+				await persistSharedAddons();
+				await persistVisibilityAccess(activityId);
+			}
 			form.is_hidden = isHidden;
 			savedActivitySnapshot = serializeActivity();
+			savedVisibilitySnapshot = serializeVisibility();
 			if (!id) {
 				allowNavigation = true;
 				await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
@@ -867,13 +903,14 @@
 						onchange={(ids) => {
 							visibilityGroupIds = ids;
 						}} />
-					{#if canEdit}<button
-							class="button-link secondary"
-							type="button"
-							disabled={visibilitySaving}
-							onclick={() => void saveVisibilityAccess()}>{m.save_visibility_access()}</button
-						>{/if}
 				</section>
+				<AddonEditor
+					addons={sharedAddons}
+					allowCreate={false}
+					allowDuplicate={false}
+					disabled={!canEdit}
+					help={m.shared_addons_panel_help()}
+					onchange={(addons) => (sharedAddons = addons)} />
 				<section class="card card-pad">
 					<div class="toolbar between">
 						<h2 class="section-title">{m.tickets()}</h2>

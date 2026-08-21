@@ -136,6 +136,10 @@ export async function saveTicketKind(id: string, body: PutTicketKind): Promise<v
 	mutation(await api.PUT('/admin/ticket-kinds/{id}', { params: { path: { id } }, body }));
 }
 
+export async function deleteTicketKind(id: string): Promise<void> {
+	mutation(await api.DELETE('/admin/ticket-kinds/{id}', { params: { path: { id } } }));
+}
+
 export async function listPurchasedTickets(id: string): Promise<PurchasedTicket[]> {
 	return responseData(
 		await api.GET('/admin/ticket-kinds/{id}/purchased-tickets', {

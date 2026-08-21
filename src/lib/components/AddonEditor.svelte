@@ -1,46 +1,59 @@
 <script lang="ts">
-	import type { PutTicketKind } from '$lib/api/types'
-	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte'
-	import LocalizedField from '$lib/components/LocalizedField.svelte'
-	import MoneyInput from '$lib/components/MoneyInput.svelte'
-	import { kronor, localize } from '$lib/i18n'
-	import * as m from '$lib/paraglide/messages'
-	import { ChevronRight, Copy, Plus, Trash2 } from '@lucide/svelte'
-	import { Switch } from '@svar-ui/svelte-core'
+	import type { PutTicketKind } from '$lib/api/types';
+	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
+	import LocalizedField from '$lib/components/LocalizedField.svelte';
+	import MoneyInput from '$lib/components/MoneyInput.svelte';
+	import { kronor, localize } from '$lib/i18n';
+	import * as m from '$lib/paraglide/messages';
+	import { copyTicketAddon } from '$lib/ticket-presets';
+	import { ChevronRight, Copy, Plus, Trash2 } from '@lucide/svelte';
+	import { Switch } from '@svar-ui/svelte-core';
 
-	type Addon = PutTicketKind['addons'][number]
-	type Option = Addon['options'][number]
+	type Addon = PutTicketKind['addons'][number];
+	type Option = Addon['options'][number];
 
 	let {
 		addons,
+		reusableAddons = [],
 		suggestions = [],
 		disabled = false,
+		lockedAddonIds = [],
+		allowCreate = true,
+		allowDuplicate = true,
+		help,
+		onoverride,
 		onchange
 	}: {
-		addons: PutTicketKind['addons']
-		suggestions?: PutTicketKind['name'][]
-		disabled?: boolean
-		onchange: (addons: PutTicketKind['addons']) => void
-	} = $props()
+		addons: PutTicketKind['addons'];
+		reusableAddons?: PutTicketKind['addons'];
+		suggestions?: PutTicketKind['name'][];
+		disabled?: boolean;
+		lockedAddonIds?: string[];
+		allowCreate?: boolean;
+		allowDuplicate?: boolean;
+		help?: string;
+		onoverride?: (addonId: string) => void;
+		onchange: (addons: PutTicketKind['addons']) => void;
+	} = $props();
 
 	// it's fucked by the re-rendering of the item when it's name changes
-	let open = $state([true])
-	let openOptions: boolean[][] = $state([])
+	let open = $state([true]);
+	let openOptions: boolean[][] = $state([]);
+	let reusableAddonId = $state('');
 
 	function replace(next: PutTicketKind['addons']): void {
-		onchange(next)
+		onchange(next);
 	}
 
 	function displayName(name: PutTicketKind['name'], fallback: string): string {
-		return localize(name, '').trim() || fallback
+		return localize(name, '').trim() || fallback;
 	}
 
 	function updateAddon(index: number, update: Partial<Addon>): void {
+		if (disabled || lockedAddonIds.includes(addons[index].id)) return;
 		replace(
-			addons.map((addon, itemIndex) =>
-				itemIndex === index ? { ...addon, ...update } : addon
-			)
-		)
+			addons.map((addon, itemIndex) => (itemIndex === index ? { ...addon, ...update } : addon))
+		);
 	}
 
 	function addAddon(): void {
@@ -54,11 +67,18 @@
 				required: false,
 				options: []
 			}
-		])
+		]);
+	}
+
+	function useExistingAddon(): void {
+		const addon = reusableAddons.find((candidate) => candidate.id === reusableAddonId);
+		if (!addon) return;
+		replace([...addons, copyTicketAddon(addon)]);
 	}
 
 	function duplicateAddon(index: number): void {
-		const source = addons[index]
+		if (disabled || lockedAddonIds.includes(addons[index].id)) return;
+		const source = addons[index];
 		const copy: Addon = {
 			...source,
 			id: crypto.randomUUID(),
@@ -70,25 +90,26 @@
 				bookkeeping_prices: [...option.bookkeeping_prices],
 				bookkeeping_price_categories: [...option.bookkeeping_price_categories]
 			}))
-		}
-		replace([...addons.slice(0, index + 1), copy, ...addons.slice(index + 1)])
+		};
+		replace([...addons.slice(0, index + 1), copy, ...addons.slice(index + 1)]);
 	}
 
 	function removeAddon(index: number): void {
-		replace(addons.filter((_, itemIndex) => itemIndex !== index))
+		if (disabled) return;
+		replace(addons.filter((_, itemIndex) => itemIndex !== index));
 	}
 
 	function updateOption(addonIndex: number, optionIndex: number, update: Partial<Option>): void {
-		const addon = addons[addonIndex]
+		const addon = addons[addonIndex];
 		updateAddon(addonIndex, {
 			options: addon.options.map((option, index) =>
 				index === optionIndex ? { ...option, ...update } : option
 			)
-		})
+		});
 	}
 
 	function addOption(addonIndex: number): void {
-		const addon = addons[addonIndex]
+		const addon = addons[addonIndex];
 		updateAddon(addonIndex, {
 			options: [
 				...addon.options,
@@ -101,7 +122,7 @@
 					bookkeeping_price_categories: ['null']
 				}
 			]
-		})
+		});
 	}
 
 	function removeOption(addonIndex: number, optionIndex: number): void {
@@ -109,15 +130,15 @@
 			options: addons[addonIndex].options
 				.filter((_, index) => index !== optionIndex)
 				.map((option, idx) => ({ ...option, idx }))
-		})
+		});
 	}
 
 	function addCategory(addonIndex: number, optionIndex: number): void {
-		const option = addons[addonIndex].options[optionIndex]
+		const option = addons[addonIndex].options[optionIndex];
 		updateOption(addonIndex, optionIndex, {
 			bookkeeping_price_categories: [...option.bookkeeping_price_categories, 'null'],
 			bookkeeping_prices: [...option.bookkeeping_prices, 0]
-		})
+		});
 	}
 
 	function updateCategory(
@@ -126,12 +147,12 @@
 		categoryIndex: number,
 		category: string
 	): void {
-		const option = addons[addonIndex].options[optionIndex]
+		const option = addons[addonIndex].options[optionIndex];
 		updateOption(addonIndex, optionIndex, {
 			bookkeeping_price_categories: option.bookkeeping_price_categories.map((value, index) =>
 				index === categoryIndex ? category : value
 			)
-		})
+		});
 	}
 
 	function updateCategoryPrice(
@@ -140,40 +161,64 @@
 		categoryIndex: number,
 		price: number
 	): void {
-		const option = addons[addonIndex].options[optionIndex]
+		const option = addons[addonIndex].options[optionIndex];
 		updateOption(addonIndex, optionIndex, {
 			bookkeeping_prices: option.bookkeeping_prices.map((value, index) =>
 				index === categoryIndex ? price : value
 			)
-		})
+		});
 	}
 
 	function removeCategory(addonIndex: number, optionIndex: number, categoryIndex: number): void {
-		const option = addons[addonIndex].options[optionIndex]
+		const option = addons[addonIndex].options[optionIndex];
 		updateOption(addonIndex, optionIndex, {
 			bookkeeping_price_categories: option.bookkeeping_price_categories.filter(
 				(_, index) => index !== categoryIndex
 			),
-			bookkeeping_prices: option.bookkeeping_prices.filter(
-				(_, index) => index !== categoryIndex
-			)
-		})
+			bookkeeping_prices: option.bookkeeping_prices.filter((_, index) => index !== categoryIndex)
+		});
 	}
 </script>
 
 <section class="card card-pad stack">
 	<div class="toolbar between">
 		<h2 class="section-title">{m.addons()} <span class="pill">{addons.length}</span></h2>
-		<button class="button-link secondary" type="button" {disabled} onclick={addAddon}>
-			<Plus size={17} />
-			{m.add_addon()}
-		</button>
+		<div class="toolbar addon-library-actions">
+			{#if reusableAddons.length > 0}
+				<label class="field compact-field">
+					<span class="sr-only">{m.existing_addon()}</span>
+					<select bind:value={reusableAddonId} {disabled}>
+						<option value="">{m.choose_existing_addon()}</option>
+						{#each reusableAddons as addon (addon.id)}
+							<option value={addon.id}>{displayName(addon.name, m.empty_addon())}</option>
+						{/each}
+					</select>
+				</label>
+				<button
+					class="button-link secondary"
+					type="button"
+					disabled={disabled || !reusableAddonId}
+					onclick={useExistingAddon}>
+					<Copy size={17} />
+					{m.use_existing_addon()}
+				</button>
+			{/if}
+			{#if allowCreate}
+				<button class="button-link secondary" type="button" {disabled} onclick={addAddon}>
+					<Plus size={17} />
+					{m.create_new_addon()}
+				</button>
+			{/if}
+		</div>
 	</div>
+	{#if help}<p class="muted">{help}</p>{/if}
+	{#if reusableAddons.length > 0}<p class="muted">{m.reused_addon_sync_help()}</p>{/if}
 	{#if addons.length === 0}
 		<p class="empty-state">{m.empty()}</p>
 	{:else}
 		<div class="stack">
 			{#each addons as addon, addonIndex (addon.id)}
+				{@const addonLocked = lockedAddonIds.includes(addon.id)}
 				<details
 					class="advanced-panel addon-panel"
 					ontoggle={(e) => (open[addonIndex] = e.newState === 'open')}
@@ -187,21 +232,33 @@
 						<span class="pill">{addon.options.length}</span>
 					</summary>
 					<div class="stack advanced-content">
+						{#if addonLocked}
+							<div class="warning-banner toolbar between">
+								<span>{m.shared_addon_locked()}</span>
+								{#if onoverride}
+									<button
+										class="button-link secondary"
+										type="button"
+										{disabled}
+										onclick={() => onoverride(addon.id)}>{m.override_shared_addon()}</button>
+								{/if}
+							</div>
+						{/if}
 						<div class="toolbar addon-actions">
-							<button
-								class="button-link secondary"
-								type="button"
-								{disabled}
-								onclick={() => duplicateAddon(addonIndex)}
-								><Copy size={16} /> {m.duplicate_addon()}</button>
+							{#if allowDuplicate}<button
+									class="button-link secondary"
+									type="button"
+									disabled={disabled || addonLocked}
+									onclick={() => duplicateAddon(addonIndex)}
+									><Copy size={16} /> {m.duplicate_addon()}</button
+								>{/if}
 							<button
 								class="button-link secondary danger-button"
 								type="button"
 								{disabled}
-								onclick={() => removeAddon(addonIndex)}
-								><Trash2 size={16} /> {m.remove()}</button>
+								onclick={() => removeAddon(addonIndex)}><Trash2 size={16} /> {m.remove()}</button>
 						</div>
-						<div inert={disabled}>
+						<div inert={disabled || addonLocked}>
 							<LocalizedField
 								value={addon.name}
 								labelSv={m.addon_name_sv()}
@@ -210,12 +267,11 @@
 								required
 								onchange={(name) => updateAddon(addonIndex, { name })} />
 						</div>
-						<div class="addon-switches" inert={disabled}>
+						<div class="addon-switches" inert={disabled || addonLocked}>
 							<label class="switch-field"
 								><Switch
 									value={addon.required}
-									onchange={({ value }) =>
-										updateAddon(addonIndex, { required: value })} /><span
+									onchange={({ value }) => updateAddon(addonIndex, { required: value })} /><span
 									>{m.addon_required()}</span
 								></label>
 							<label class="switch-field"
@@ -238,9 +294,8 @@
 							<button
 								class="button-link secondary"
 								type="button"
-								{disabled}
-								onclick={() => addOption(addonIndex)}
-								><Plus size={16} /> {m.add_option()}</button>
+								disabled={disabled || addonLocked}
+								onclick={() => addOption(addonIndex)}><Plus size={16} /> {m.add_option()}</button>
 						</div>
 						{#if addon.options.length === 0}<p class="muted">{m.empty()}</p>{:else}
 							<div class="stack">
@@ -248,32 +303,28 @@
 									<details
 										class="option-card option-panel"
 										ontoggle={(e) => {
-											openOptions[addonIndex] = openOptions[addonIndex] ?? []
-											openOptions[addonIndex][optionIndex] =
-												e.newState === 'open'
+											openOptions[addonIndex] = openOptions[addonIndex] ?? [];
+											openOptions[addonIndex][optionIndex] = e.newState === 'open';
 										}}
 										open={(openOptions[addonIndex] ?? [])[optionIndex]}>
 										<summary>
 											<span class="collapse-summary-name"
-												><ChevronRight
-													class="collapse-arrow"
-													size={17} />{displayName(
+												><ChevronRight class="collapse-arrow" size={17} />{displayName(
 													option.name,
 													m.empty_option()
 												)}</span>
 											<span>{kronor(option.price)}</span>
 										</summary>
-										<div class="stack option-content">
+										<div class="stack option-content" inert={disabled || addonLocked}>
 											<div class="toolbar addon-actions">
 												<button
 													class="button-link secondary danger-button"
 													type="button"
-													{disabled}
-													onclick={() =>
-														removeOption(addonIndex, optionIndex)}
+													disabled={disabled || addonLocked}
+													onclick={() => removeOption(addonIndex, optionIndex)}
 													><Trash2 size={15} /> {m.remove()}</button>
 											</div>
-											<div class="grid-2" inert={disabled}>
+											<div class="grid-2" inert={disabled || addonLocked}>
 												<LocalizedField
 													value={option.name}
 													labelSv={m.option_name_sv()}
@@ -299,10 +350,7 @@
 													<p class="muted">
 														{m.bookkeeping_total({
 															total: kronor(
-																option.bookkeeping_prices.reduce(
-																	(sum, price) => sum + price,
-																	0
-																)
+																option.bookkeeping_prices.reduce((sum, price) => sum + price, 0)
 															),
 															price: kronor(option.price)
 														})}
@@ -311,8 +359,8 @@
 												<button
 													class="button-link secondary"
 													type="button"
-													onclick={() =>
-														addCategory(addonIndex, optionIndex)}
+													disabled={disabled || addonLocked}
+													onclick={() => addCategory(addonIndex, optionIndex)}
 													><Plus size={15} />
 													{m.add_bookkeeping_category()}</button>
 											</div>
@@ -328,9 +376,7 @@
 																value
 															)} /><MoneyInput
 														label={m.bookkeeping_amount()}
-														value={option.bookkeeping_prices[
-															categoryIndex
-														]}
+														value={option.bookkeeping_prices[categoryIndex]}
 														onchange={(price) =>
 															updateCategoryPrice(
 																addonIndex,
@@ -341,12 +387,8 @@
 														class="icon-button danger-button"
 														type="button"
 														aria-label={m.remove()}
-														onclick={() =>
-															removeCategory(
-																addonIndex,
-																optionIndex,
-																categoryIndex
-															)}><Trash2 size={16} /></button>
+														onclick={() => removeCategory(addonIndex, optionIndex, categoryIndex)}
+														><Trash2 size={16} /></button>
 												</div>{/each}
 										</div>
 									</details>

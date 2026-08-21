@@ -34,10 +34,12 @@
 		createDietaryPreferencesAddon,
 		hasDietaryPreferencesAddon,
 		setDietaryPreferencesAddon,
+		ticketAddonDataKey,
 		type TicketPresetId,
 		UNLIMITED_TICKETS
 	} from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
+	import { applySharedAddonChanges, sharedTicketAddons } from '$lib/shared-addons';
 	import { ArrowLeft, Plus, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { parseCoordinate } from '$lib/coordinates';
@@ -49,6 +51,7 @@
 		invited: boolean;
 		paidPrice: number;
 		transfersEnabled: boolean;
+		overriddenAddonIds: string[];
 		body: PutTicketKind;
 	};
 	type NotificationDraft = {
@@ -127,7 +130,7 @@
 		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
 	}
 
-	function newTicketDraft(): TicketDraft {
+	function newTicketDraft(existingAddons: PutTicketKind['addons'] = []): TicketDraft {
 		const id = crypto.randomUUID();
 		const release = defaultTicketRelease();
 		return {
@@ -137,6 +140,7 @@
 			invited: false,
 			paidPrice: 0,
 			transfersEnabled: true,
+			overriddenAddonIds: [],
 			body: {
 				activity_id: activityId,
 				name: { sv: '', en: '' },
@@ -149,7 +153,7 @@
 				allow_transfer_ticket_stop: activity.time_start,
 				allow_transfer_ticket_bypass_allowed_groups: false,
 				allowed_group_ids: [],
-				addons: [createDietaryPreferencesAddon()]
+				addons: [createDietaryPreferencesAddon(existingAddons)]
 			}
 		};
 	}
@@ -302,7 +306,7 @@
 		}
 		draft.dietary = ['free', 'simple', 'allocated'].includes(preset);
 		if (draft.dietary && draft.body.addons.length === 0)
-			draft.body.addons = [createDietaryPreferencesAddon()];
+			draft.body.addons = [createDietaryPreferencesAddon(reusableAddonsFor(index))];
 	}
 
 	function updateTicket(index: number, value: PutTicketKind): void {
@@ -335,7 +339,45 @@
 	function toggleDietary(index: number, enabled: boolean): void {
 		const draft = tickets[index];
 		draft.dietary = enabled;
-		draft.body.addons = setDietaryPreferencesAddon(draft.body.addons, enabled);
+		draft.body.addons = setDietaryPreferencesAddon(
+			draft.body.addons,
+			enabled,
+			reusableAddonsFor(index)
+		);
+	}
+
+	function reusableAddonsFor(ticketIndex: number): PutTicketKind['addons'] {
+		return tickets
+			.filter((_, index) => index !== ticketIndex)
+			.flatMap((ticket) => ticket.body.addons);
+	}
+
+	function lockedAddonIdsFor(ticketIndex: number): string[] {
+		const ticket = tickets[ticketIndex];
+		const reusable = reusableAddonsFor(ticketIndex);
+		return ticket.body.addons
+			.filter(
+				(addon) =>
+					!ticket.overriddenAddonIds.includes(addon.id) &&
+					reusable.some((candidate) => ticketAddonDataKey(candidate) === ticketAddonDataKey(addon))
+			)
+			.map((addon) => addon.id);
+	}
+
+	function overrideSharedAddon(ticketIndex: number, addonId: string): void {
+		if (!confirm(m.override_shared_addon_confirm())) return;
+		const ticket = tickets[ticketIndex];
+		ticket.overriddenAddonIds = [...ticket.overriddenAddonIds, addonId];
+	}
+
+	function updateSharedAddons(next: PutTicketKind['addons']): void {
+		const addonLists = $state.snapshot(tickets.map((ticket) => ticket.body.addons));
+		const previous = sharedTicketAddons(addonLists);
+		const updated = applySharedAddonChanges(addonLists, previous, $state.snapshot(next));
+		tickets = tickets.map((ticket, index) => ({
+			...ticket,
+			body: { ...ticket.body, addons: updated[index] }
+		}));
 	}
 
 	function addNotification(): void {
@@ -519,13 +561,24 @@
 					}} />
 				<p class="muted">{m.visibility_access_help()}</p>
 				{#if hasTickets}
+					<AddonEditor
+						addons={sharedTicketAddons(
+							$state.snapshot(tickets.map((ticket) => ticket.body.addons))
+						)}
+						allowCreate={false}
+						allowDuplicate={false}
+						help={m.shared_addons_panel_help()}
+						onchange={updateSharedAddons} />
 					<div class="toolbar between">
 						<h2 class="section-title">{m.ticket_drafts()}</h2>
 						<button
 							class="button-link secondary"
 							type="button"
-							onclick={() => (tickets = [...tickets, newTicketDraft()])}
-							><Plus size={16} /> {m.add_ticket_kind()}</button>
+							onclick={() =>
+								(tickets = [
+									...tickets,
+									newTicketDraft(tickets.flatMap((ticket) => ticket.body.addons))
+								])}><Plus size={16} /> {m.add_ticket_kind()}</button>
 					</div>
 					{#each tickets as ticket, index (ticket.id)}
 						<details
@@ -601,9 +654,12 @@
 											>{m.include_dietary_preferences()}</span
 										></label
 									>{/if}
-								{#if ticket.preset === 'advanced'}
+								{#if ['simple', 'allocated', 'advanced'].includes(ticket.preset)}
 									<AddonEditor
 										addons={ticket.body.addons}
+										reusableAddons={reusableAddonsFor(index)}
+										lockedAddonIds={lockedAddonIdsFor(index)}
+										onoverride={(addonId) => overrideSharedAddon(index, addonId)}
 										onchange={(addons) => (ticket.body.addons = addons)} />
 								{/if}
 							</div>
