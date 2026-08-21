@@ -1,11 +1,13 @@
 <script lang="ts">
 	import type { Group, PutTicketKind } from '$lib/api/types';
+	import { ticketReleaseIsTooSoon } from '$lib/activity-form';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { Switch } from '@svar-ui/svelte-core';
+	import { onMount } from 'svelte';
 
 	let {
 		value,
@@ -40,6 +42,14 @@
 	function update(update: Partial<PutTicketKind>): void {
 		onchange({ ...value, ...update });
 	}
+
+	let now = $state(Date.now());
+	const releaseTooSoon = $derived(ticketReleaseIsTooSoon(value.purchasing_available_start, now));
+
+	onMount(() => {
+		const timer = window.setInterval(() => (now = Date.now()), 30_000);
+		return () => window.clearInterval(timer);
+	});
 </script>
 
 <div class="grid-2">
@@ -83,7 +93,7 @@
 			<DateTimePicker
 				label={m.available_from()}
 				value={value.purchasing_available_start}
-				error={invalidField === m.available_from()}
+				error={invalidField === m.available_from() || releaseTooSoon}
 				onchange={(purchasing_available_start) => update({ purchasing_available_start })} />
 			<DateTimePicker
 				label={m.available_until()}

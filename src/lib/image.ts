@@ -55,3 +55,20 @@ export async function uploadImage(file: File): Promise<string> {
 	toasts.show('success', m.image_ready());
 	return allowance.key.split('.')[0];
 }
+
+export async function uploadRandomColorImage(): Promise<string> {
+	const canvas = document.createElement('canvas');
+	canvas.width = 1;
+	canvas.height = 1;
+	const context = canvas.getContext('2d');
+	if (!context) throw new Error('Image generation is not supported by this browser');
+	context.fillStyle = `hsl(${Math.floor(Math.random() * 360)} 50% 50%)`;
+	context.fillRect(0, 0, 1, 1);
+	const blob = await new Promise<Blob>((resolve, reject) =>
+		canvas.toBlob(
+			(value) => (value ? resolve(value) : reject(new Error('Could not generate image'))),
+			'image/png'
+		)
+	);
+	return uploadImage(new File([blob], 'activity-placeholder.png', { type: 'image/png' }));
+}

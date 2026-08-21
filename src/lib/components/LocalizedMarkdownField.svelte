@@ -158,7 +158,7 @@
 		line-height: 1.4;
 		letter-spacing: normal;
 		border: none !important;
-				border-radius: 0 !important;
+		border-radius: 0 !important;
 	}
 
 	:global(.carta-theme__default) {

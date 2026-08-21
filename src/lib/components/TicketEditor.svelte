@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { beforeNavigate, goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { getActivity, getTicketKind, listGroupTree, saveTicketKind } from '$lib/api/admin';
 	import { ApiError, frontendError } from '$lib/api/client';
 	import { defaultTicketRelease, ticketReleaseIsTooSoon } from '$lib/activity-form';
@@ -30,6 +31,7 @@
 
 	const I32_MAX = UNLIMITED_TICKETS;
 	type ValidationIssue = { field: string; message: string };
+	type DuplicateTicketNavigationState = { duplicatedTicket?: PutTicketKind };
 
 	let { id, activityId }: { id: string | null; activityId: string } = $props();
 	let loading = $state(false);
@@ -120,7 +122,7 @@
 			preset = detectTicketPreset(ticket);
 			allocatedFree = preset === 'allocated' && ticket.price === 0;
 			allocatedPaidPrice = ticket.price;
-			form = {
+			const loadedForm: PutTicketKind = {
 				activity_id: ticket.activity_id,
 				name: { ...ticket.ticket_kind_name },
 				price: ticket.price,
@@ -135,6 +137,12 @@
 				allowed_group_ids: [...ticket.allowed_group_ids],
 				addons: structuredClone(ticket.available_addons)
 			};
+			const duplicatedTicket = (page.state as DuplicateTicketNavigationState).duplicatedTicket;
+			form =
+				duplicatedTicket?.activity_id === ticket.activity_id
+					? structuredClone(duplicatedTicket)
+					: loadedForm;
+			if (duplicatedTicket) replaceState(resolve('/tickets/[id]', { id }), {});
 			groups = groupTree;
 			addonNameSuggestions = addonNames;
 			limitMaximum = ticket.max_tickets !== I32_MAX;
@@ -432,13 +440,22 @@
 		try {
 			const ticketId = crypto.randomUUID();
 			const copy = $state.snapshot(form);
-			await saveTicketKind(ticketId, {
+			const frontendCopy: PutTicketKind = {
 				...copy,
 				name: copiedLocalizedTitle(copy.name),
 				addons: copyTicketAddons(copy.addons)
+			};
+			const futureStart = new Date(Date.now() + 100 * 365 * 86_400_000);
+			const futureStop = new Date(futureStart.getTime() + 365 * 86_400_000);
+			await saveTicketKind(ticketId, {
+				...frontendCopy,
+				purchasing_available_start: futureStart.toISOString(),
+				purchasing_available_stop: futureStop.toISOString()
 			});
 			allowNavigation = true;
-			await goto(resolve('/tickets/[id]', { id: ticketId }));
+			await goto(resolve('/tickets/[id]', { id: ticketId }), {
+				state: { duplicatedTicket: frontendCopy } satisfies DuplicateTicketNavigationState
+			});
 		} catch (cause) {
 			allowNavigation = false;
 			error = frontendError(cause);

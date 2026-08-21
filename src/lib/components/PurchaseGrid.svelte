@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AdminUser, PurchasedTicket, TicketKind } from '$lib/api/types';
+	import type { AdminUser, Group, PurchasedTicket, TicketKind } from '$lib/api/types';
 	import { kronor, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { Grid, WillowDark } from '@svar-ui/svelte-grid';
@@ -9,23 +9,33 @@
 	let {
 		purchases,
 		kinds,
+		groups = [],
 		users = [],
 		view = 'buyers'
 	}: {
 		purchases: PurchasedTicket[];
 		kinds: TicketKind[];
+		groups?: Group[];
 		users?: AdminUser[];
-		view?: 'buyers' | 'breakdown';
+		view?: 'buyers' | 'breakdown' | 'memberships';
 	} = $props();
 
 	const usersById = $derived(new Map(users.map((user) => [user.user_id, user.name])));
 	const kindsById = $derived(new Map(kinds.map((kind) => [kind.ticket_kind_id, kind])));
-	const columns: IColumnConfig[] = [
-		{ id: 'item', header: m.purchase_item(), treetoggle: true, flexgrow: 2, width: 230 },
-		{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
-		{ id: 'count', header: m.purchase_count(), width: 100 },
-		{ id: 'total', header: m.purchase_total(), width: 130 }
-	];
+	const columns = $derived<IColumnConfig[]>(
+		view === 'memberships'
+			? [
+					{ id: 'item', header: m.memberships(), treetoggle: true, flexgrow: 2, width: 230 },
+					{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
+					{ id: 'count', header: m.members(), width: 100 }
+				]
+			: [
+					{ id: 'item', header: m.purchase_item(), treetoggle: true, flexgrow: 2, width: 230 },
+					{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
+					{ id: 'count', header: m.purchase_count(), width: 100 },
+					{ id: 'total', header: m.purchase_total(), width: 130 }
+				]
+	);
 
 	function normalizedName(name: { sv?: string; en?: string }): string {
 		return (name.sv || name.en || '')
@@ -97,6 +107,7 @@
 				type: m.buyer(),
 				count: tickets.length,
 				total: kronor(tickets.reduce((sum, ticket) => sum + purchasePrice(ticket), 0)),
+				open: false,
 				data: tickets.flatMap((ticket) => {
 					const kind = kindsById.get(ticket.ticket_kind_id);
 					if (!kind) return [];
@@ -107,6 +118,7 @@
 							type: m.base_ticket(),
 							count: 1,
 							total: kronor(purchasePrice(ticket)),
+							open: false,
 							data: ticketChildren(ticket, kind)
 						}
 					];
@@ -200,6 +212,7 @@
 			...row,
 			count: row.buyers.length,
 			total: kronor(row.total),
+			open: false,
 			data: row.buyers
 		}));
 		const baseTotal = [...baseKinds.values()].reduce((sum, row) => sum + row.total, 0);
@@ -211,6 +224,7 @@
 						type: m.base_ticket(),
 						count: purchases.length,
 						total: kronor(baseTotal),
+						open: false,
 						data: baseChildren
 					}
 				]
@@ -220,6 +234,7 @@
 				...option,
 				count: option.buyers.length,
 				total: kronor(option.total),
+				open: false,
 				data: option.buyers
 			}));
 			rows.push({
@@ -228,13 +243,56 @@
 				type: addon.type,
 				count: options.reduce((sum, option) => sum + option.count, 0),
 				total: kronor(addon.total),
+				open: false,
 				data: options
 			});
 		}
 		return rows;
 	}
 
-	const rows = $derived.by(() => (view === 'buyers' ? buildBuyerRows() : buildBreakdownRows()));
+	function buildMembershipRows(): IRow[] {
+		const groupsById = new Map(groups.map((group) => [group.id, group]));
+		const ownersByGroupId = new SvelteMap<string, SvelteMap<string, true>>();
+		for (const purchase of purchases) {
+			for (const groupId of new Set(purchase.owner_memberships)) {
+				if (!groupsById.has(groupId)) continue;
+				const owners = ownersByGroupId.get(groupId) ?? new SvelteMap<string, true>();
+				owners.set(purchase.owner_id, true);
+				ownersByGroupId.set(groupId, owners);
+			}
+		}
+
+		return [...ownersByGroupId.entries()]
+			.sort(([leftId], [rightId]) => {
+				const left = groupsById.get(leftId)!;
+				const right = groupsById.get(rightId)!;
+				return localize(left.name, left.path).localeCompare(localize(right.name, right.path));
+			})
+			.map(([groupId, owners]) => {
+				const group = groupsById.get(groupId)!;
+				return {
+					id: `membership:${group.id}`,
+					item: localize(group.name, group.path),
+					type: m.membership(),
+					count: owners.size,
+					open: false,
+					data: [...owners.keys()]
+						.sort((left, right) => userLabel(left).localeCompare(userLabel(right)))
+						.map((ownerId) => ({
+							id: `membership:${group.id}:owner:${ownerId}`,
+							item: userLabel(ownerId),
+							type: m.buyer(),
+							count: 1
+						}))
+				};
+			});
+	}
+
+	const rows = $derived.by(() => {
+		if (view === 'buyers') return buildBuyerRows();
+		if (view === 'breakdown') return buildBreakdownRows();
+		return buildMembershipRows();
+	});
 </script>
 
 {#if rows.length === 0}

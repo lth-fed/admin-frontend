@@ -4,16 +4,23 @@ import { apiBaseUrl } from '$lib/config';
 import type { paths } from './generated/minilith';
 import { toasts } from '$lib/toasts.svelte';
 
-export const api = createClient<paths>({ baseUrl: apiBaseUrl });
+async function authenticatedFetch(input: Request): Promise<Response> {
+	const request = input.clone();
+	const token = await auth.accessToken();
+	if (token) request.headers.set('Authorization', `Bearer ${token}`);
+	if (!request.headers.has('Accept')) request.headers.set('Accept', 'application/json');
 
-api.use({
-	async onRequest({ request }) {
-		const token = await auth.accessToken();
-		if (token) request.headers.set('Authorization', `Bearer ${token}`);
-		if (!request.headers.has('Accept')) request.headers.set('Accept', 'application/json');
-		return request;
-	}
-});
+	const retry = request.clone();
+	const response = await fetch(request);
+	if (response.status !== 401 || !token) return response;
+
+	const refreshedToken = await auth.refreshAccessToken(token);
+	if (!refreshedToken) return response;
+	retry.headers.set('Authorization', `Bearer ${refreshedToken}`);
+	return fetch(retry);
+}
+
+export const api = createClient<paths>({ baseUrl: apiBaseUrl, fetch: authenticatedFetch });
 
 export class ApiError extends Error {
 	constructor(

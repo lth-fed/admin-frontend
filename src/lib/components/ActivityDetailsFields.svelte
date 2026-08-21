@@ -49,7 +49,6 @@
 			value={value.title}
 			labelSv={m.title_sv()}
 			labelEn={m.title_en()}
-			required
 			errorSv={invalidField === m.title_sv()}
 			errorEn={invalidField === m.title_en()}
 			onchange={(title) => onchange({ ...value, title })} />
@@ -57,7 +56,6 @@
 			value={value.description}
 			labelSv={m.description_sv()}
 			labelEn={m.description_en()}
-			required
 			errorSv={invalidField === m.description_sv()}
 			errorEn={invalidField === m.description_en()}
 			onchange={(description) => onchange({ ...value, description })} />
@@ -69,7 +67,6 @@
 			onchange={(time_end) => onchange({ ...value, time_end })} />
 		<label class:field-error={invalidField === m.responsible_name()} class="field"
 			><span>{m.responsible_name()}</span><input
-				required
 				aria-invalid={invalidField === m.responsible_name()}
 				value={value.responsible_name}
 				oninput={(event) =>
@@ -85,7 +82,6 @@
 					]}
 					onchange={({ value: kind }) => oncontactkindchange(kind)} />
 				<input
-					required
 					aria-invalid={invalidField === m.responsible_contact()}
 					type={contactKind === 'mailto' ? 'email' : 'tel'}
 					placeholder={contactKind === 'mailto' ? 'admin@example.org' : '+46 70 123 45 67'}

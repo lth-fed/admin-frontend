@@ -27,7 +27,7 @@
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
 	import { localize } from '$lib/i18n';
-	import { uploadImage } from '$lib/image';
+	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
 	import {
 		applyTicketPreset,
@@ -202,25 +202,8 @@
 		invalidField = null;
 		invalidTicketId = null;
 		if (index === 0) {
-			if (!activity.title.sv?.trim() || !activity.title.en?.trim())
-				return showError(
-					`${m.title_sv()}: ${m.required_fields()}`,
-					!activity.title.sv?.trim() ? m.title_sv() : m.title_en()
-				);
-			if (!activity.description.sv?.trim() || !activity.description.en?.trim())
-				return showError(
-					`${m.description_sv()}: ${m.required_fields()}`,
-					!activity.description.sv?.trim() ? m.description_sv() : m.description_en()
-				);
-			if (!activity.image_id)
-				return showError(`${m.activity_image()}: ${m.required_fields()}`, m.activity_image());
 			if (!activity.creator_id)
 				return showError(`${m.creator()}: ${m.required_fields()}`, m.creator());
-			if (!activity.responsible_name.trim() || !contactValue.trim())
-				return showError(
-					`${m.responsible_contact()}: ${m.required_fields()}`,
-					!activity.responsible_name.trim() ? m.responsible_name() : m.responsible_contact()
-				);
 			if (new Date(activity.time_end) <= new Date(activity.time_start))
 				return showError(m.end_after_start(), m.end());
 		}
@@ -391,6 +374,7 @@
 		saving = true;
 		error = null;
 		try {
+			if (!activity.image_id) activity.image_id = await uploadRandomColorImage();
 			const parsedNorth = parseCoordinate(north, 'north');
 			const parsedEast = parseCoordinate(east, 'east');
 			await saveActivity(activityId, {

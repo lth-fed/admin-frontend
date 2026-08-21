@@ -227,7 +227,9 @@
 		try {
 			await saveGroupNotification(id, notificationId, notificationDraft);
 			notifications = await listGroupNotifications(id);
-			savedNotificationSnapshot = serializeNotification(notificationDraft);
+			notificationEditorOpen = false;
+			notificationId = null;
+			savedNotificationSnapshot = '';
 			toasts.show('success', m.backend_success());
 		} catch (cause) {
 			error = frontendError(cause);

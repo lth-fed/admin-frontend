@@ -49,7 +49,7 @@
 	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { copiedLocalizedTitle, dateTime, kronor, localize } from '$lib/i18n';
-	import { uploadImage } from '$lib/image';
+	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
 	import { copyTicketAddons } from '$lib/ticket-presets';
 	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
@@ -320,16 +320,19 @@
 	}
 
 	function validate(): ValidationIssue | null {
-		if (!form.title.sv.trim()) return issue(m.title_sv(), m.required_fields());
-		if (!form.title.en.trim()) return issue(m.title_en(), m.required_fields());
-		if (!form.responsible_name.trim()) return issue(m.responsible_name(), m.required_fields());
-		if (!contactValue.trim()) return issue(m.responsible_contact(), m.required_fields());
-		if (contactKind === 'mailto' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactValue))
+		if (
+			contactValue.trim() &&
+			contactKind === 'mailto' &&
+			!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactValue)
+		)
 			return issue(m.responsible_contact(), m.invalid_email());
-		if (contactKind === 'tel' && !/^\+?[0-9][0-9 ()-]{5,}$/.test(contactValue))
+		if (
+			contactValue.trim() &&
+			contactKind === 'tel' &&
+			!/^\+?[0-9][0-9 ()-]{5,}$/.test(contactValue)
+		)
 			return issue(m.responsible_contact(), m.invalid_phone());
 		if (!form.creator_id) return issue(m.creator(), m.required_fields());
-		if (!form.image_id) return issue(m.activity_image(), m.required_fields());
 		if (new Date(form.time_end) <= new Date(form.time_start))
 			return issue(m.end(), m.end_after_start());
 		if (
@@ -552,6 +555,7 @@
 		invalidField = null;
 		try {
 			const activityId = id ?? crypto.randomUUID();
+			if (!form.image_id) form.image_id = await uploadRandomColorImage();
 			const keepsAdminAccess = adminGroupIds.some(
 				(groupId) => groupId === form.creator_id || form.host_ids.includes(groupId)
 			);
@@ -946,6 +950,16 @@
 						{m.purchasers()} <span class="pill">{purchases.length}</span>
 					</h2>
 					<PurchaseGrid {purchases} kinds={detailedTicketKinds} users={userSuggestions} />
+				</section>
+
+				<section class="card card-pad stack">
+					<h2 class="section-title">{m.memberships()}</h2>
+					<PurchaseGrid
+						{purchases}
+						kinds={detailedTicketKinds}
+						{groups}
+						users={userSuggestions}
+						view="memberships" />
 				</section>
 			{/if}
 

@@ -20,6 +20,7 @@ class AuthSession {
 	error = $state<string | null>(null);
 	#manager: UserManager | null = null;
 	#initializing: Promise<void> | null = null;
+	#renewing: Promise<User | null> | null = null;
 
 	get manager(): UserManager {
 		if (!browser) throw new Error('OIDC is only available in the browser');
@@ -108,9 +109,11 @@ class AuthSession {
 		await this.initialize();
 		let user = await this.manager.getUser();
 		if (!user) return null;
-		if (user.expired) {
+		// Avoid starting a request with a token that can expire in flight. This also covers small
+		// clock differences between the browser and backend after a tab has been idle for a while.
+		if (user.expired || (user.expires_in !== undefined && user.expires_in <= 60)) {
 			try {
-				user = await this.manager.signinSilent();
+				user = await this.#renew();
 			} catch (error) {
 				this.#reportError(error, m.auth_session_expired());
 				await this.manager.removeUser();
@@ -121,6 +124,42 @@ class AuthSession {
 		if (!user) return null;
 		this.#setUser(user);
 		return user.access_token;
+	}
+
+	async refreshAccessToken(rejectedToken: string): Promise<string | null> {
+		await this.initialize();
+		let user = await this.manager.getUser();
+		if (!user) return null;
+
+		// Another request may already have refreshed while this one was in flight.
+		if (user.access_token !== rejectedToken && !user.expired) {
+			this.#setUser(user);
+			return user.access_token;
+		}
+
+		try {
+			user = await this.#renew();
+		} catch (error) {
+			this.#reportError(error, m.auth_session_expired());
+			await this.manager.removeUser();
+			this.#setUser(null);
+			return null;
+		}
+		if (!user) return null;
+		return user.access_token;
+	}
+
+	async #renew(): Promise<User | null> {
+		if (this.#renewing) return this.#renewing;
+		this.#renewing = this.manager.signinSilent().then((user) => {
+			this.#setUser(user);
+			return user;
+		});
+		try {
+			return await this.#renewing;
+		} finally {
+			this.#renewing = null;
+		}
 	}
 
 	async logout(): Promise<void> {
