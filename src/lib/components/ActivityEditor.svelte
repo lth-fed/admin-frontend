@@ -6,6 +6,7 @@
 	import { activityTabIndex, activityTabUrl, isActivityTabNavigation } from '$lib/activity-tabs';
 	import {
 		addActivityVerifier,
+		deleteActivity,
 		deleteNotification,
 		downloadActivityReport,
 		getActivity,
@@ -138,6 +139,7 @@
 		isNew ||
 			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
 	);
+	const canDelete = $derived(Boolean(id && canEdit && form.is_hidden && tickets.length === 0));
 	const purchasableTickets = $derived(
 		tickets.filter(
 			(ticket) =>
@@ -743,6 +745,22 @@
 			saving = false;
 		}
 	}
+
+	async function removeActivity(): Promise<void> {
+		if (!id || !canDelete || !confirm(m.delete_activity_confirm())) return;
+		saving = true;
+		error = null;
+		try {
+			await deleteActivity(id);
+			allowNavigation = true;
+			await goto(resolve('/'), { replaceState: true });
+		} catch (cause) {
+			allowNavigation = false;
+			error = frontendError(cause);
+		} finally {
+			saving = false;
+		}
+	}
 </script>
 
 <header class="page-header edit-page-header">
@@ -768,6 +786,15 @@
 				onclick={() => void duplicateActivity()}>
 				<Copy size={17} />
 				{m.duplicate_activity()}
+			</button>
+			<button
+				class="button-link secondary danger-button"
+				type="button"
+				disabled={saving || !canDelete}
+				title={canDelete ? undefined : m.delete_activity_unavailable()}
+				onclick={() => void removeActivity()}>
+				<Trash2 size={17} />
+				{m.delete_activity()}
 			</button>
 		{/if}
 		<a class="button-link secondary" href={resolve('/')}><ArrowLeft size={18} /> {m.back()}</a>

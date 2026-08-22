@@ -47,6 +47,10 @@ export async function saveActivity(id: string, body: PutActivity): Promise<void>
 	mutation(await api.PUT('/admin/activities/{id}', { params: { path: { id } }, body }));
 }
 
+export async function deleteActivity(id: string): Promise<void> {
+	mutation(await api.DELETE('/admin/activities/{id}', { params: { path: { id } } }));
+}
+
 export async function listActivityHostInvites(): Promise<ActivityHostInvite[]> {
 	return responseData(await api.GET('/admin/activity-host-invites'));
 }
