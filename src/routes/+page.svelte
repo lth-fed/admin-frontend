@@ -9,7 +9,7 @@
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type { ActivityHostInvite, BriefActivity } from '$lib/api/types';
-	import { dateTime, localize } from '$lib/i18n';
+	import { createCalendarWords, dateTime, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import {
@@ -123,48 +123,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function createCalendarWords(locale: 'sv-SE' | 'en-GB') {
-		const monthFull = Array.from({ length: 12 }, (_, month) =>
-			new Intl.DateTimeFormat(locale, { month: 'long' }).format(new Date(2024, month, 1, 12))
-		);
-		const monthShort = Array.from({ length: 12 }, (_, month) =>
-			new Intl.DateTimeFormat(locale, { month: 'short' }).format(new Date(2024, month, 1, 12))
-		);
-		const dayFull = Array.from({ length: 7 }, (_, day) =>
-			new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(new Date(2024, 0, 7 + day, 12))
-		);
-		const dayShort = Array.from({ length: 7 }, (_, day) =>
-			new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(new Date(2024, 0, 7 + day, 12))
-		);
-
-		return {
-			lang: locale,
-			calendar: {
-				monthFull,
-				monthShort,
-				dayFull,
-				dayShort,
-				weekStart: 1,
-				clockFormat: 24,
-				today: m.today()
-			},
-			formats: { timeFormat: '%H:%i' },
-			eventCalendar: {
-				Day: m.day(),
-				Week: m.week(),
-				Month: m.month(),
-				Today: m.today(),
-				'Previous period': m.previous(),
-				'Next period': m.next(),
-				Calendar: m.calendar(),
-				timeScaleFormat: '%H:%i',
-				weekScaleFormat: '%D %j',
-				monthScaleFormat: '%D',
-				weekNumberFormat: '%w'
-			}
-		};
 	}
 
 	function weekNumber(date: Date): number {

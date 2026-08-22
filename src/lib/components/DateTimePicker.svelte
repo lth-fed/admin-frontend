@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { DatePicker, TimePicker } from '@svar-ui/svelte-core';
+	import { createCalendarWords } from '$lib/i18n';
+	import { getLocale } from '$lib/paraglide/runtime';
+	import TimeInput from '$lib/components/TimeInput.svelte';
+	import { DatePicker, Locale } from '@svar-ui/svelte-core';
 	import { SvelteDate } from 'svelte/reactivity';
 
 	let {
@@ -14,6 +17,9 @@
 		onchange: (value: string) => void;
 	} = $props();
 
+	const calendarLanguage = getLocale() === 'sv' ? 'sv-SE' : 'en-GB';
+	const calendarWords = createCalendarWords(calendarLanguage);
+
 	const date = $derived(new Date(value));
 
 	function changeDate(next: Date | null): void {
@@ -23,9 +29,9 @@
 		onchange(merged.toISOString());
 	}
 
-	function changeTime(next: Date): void {
+	function changeTime(hours: number, minutes: number): void {
 		const merged = new SvelteDate(date);
-		merged.setHours(next.getHours(), next.getMinutes(), 0, 0);
+		merged.setHours(hours, minutes, 0, 0);
 		onchange(merged.toISOString());
 	}
 </script>
@@ -33,12 +39,14 @@
 <div class="field">
 	<span>{label}</span>
 	<div class="date-time-pickers">
-		<DatePicker
-			value={date}
-			{error}
-			buttons={['today']}
-			editable
-			onchange={({ value: next }) => changeDate(next)} />
-		<TimePicker value={date} {error} onchange={({ value: next }) => changeTime(next)} />
+		<Locale words={calendarWords}>
+			<DatePicker
+				value={date}
+				{error}
+				buttons={['today']}
+				editable
+				onchange={({ value: next }) => changeDate(next)} />
+		</Locale>
+		<TimeInput value={date} {error} onchange={changeTime} />
 	</div>
 </div>
