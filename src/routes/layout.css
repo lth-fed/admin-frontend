@@ -28,7 +28,12 @@ button,
 input,
 textarea,
 select {
-	font: inherit;
+	font-family: inherit;
+	font-size: inherit;
+	font-weight: inherit;
+}
+input {
+	padding: 6px;
 }
 a {
 	color: inherit;
@@ -206,8 +211,8 @@ a {
 .locale-picker select {
 	width: 100%;
 	border: 1px solid #3a403c;
-	border-radius: 9px;
-	padding: 10px 11px;
+	border-radius: 4px;
+	padding: 5px 8px;
 	color: #e4e7e5;
 	background: #141715;
 	font-weight: 450;

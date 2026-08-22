@@ -712,29 +712,31 @@
 				title: copiedLocalizedTitle(copy.title)
 			});
 			const now = Date.now();
+			const delayedRelease = new Date(now + 86_400_000).toISOString();
 			await Promise.all(
-				sourceTicketKinds
-					.filter(
-						(kind) =>
-							!kind.has_been_released && new Date(kind.purchasing_available_start).getTime() > now
-					)
-					.map((kind) =>
-						saveTicketKind(crypto.randomUUID(), {
-							activity_id: activityId,
-							name: { ...kind.ticket_kind_name },
-							price: kind.price,
-							purchasing_available_start: kind.purchasing_available_start,
-							purchasing_available_stop: kind.purchasing_available_stop,
-							max_tickets: kind.max_tickets,
-							min_tickets: kind.min_tickets,
-							allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
-							allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-							allow_transfer_ticket_bypass_allowed_groups:
-								kind.allow_transfer_ticket_bypass_allowed_groups,
-							allowed_group_ids: [...kind.allowed_group_ids],
-							addons: copyTicketAddons(kind.available_addons)
-						})
-					)
+				sourceTicketKinds.map((kind) => {
+					const releaseHasPassed =
+						kind.has_been_released || new Date(kind.purchasing_available_start).getTime() <= now;
+					const release = releaseHasPassed ? delayedRelease : kind.purchasing_available_start;
+					return saveTicketKind(crypto.randomUUID(), {
+						activity_id: activityId,
+						name: { ...kind.ticket_kind_name },
+						price: kind.price,
+						purchasing_available_start: release,
+						purchasing_available_stop: kind.purchasing_available_stop,
+						max_tickets: kind.max_tickets,
+						min_tickets: kind.min_tickets,
+						allow_transfer_ticket_start:
+							kind.allow_transfer_ticket_start === kind.purchasing_available_start
+								? release
+								: kind.allow_transfer_ticket_start,
+						allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
+						allow_transfer_ticket_bypass_allowed_groups:
+							kind.allow_transfer_ticket_bypass_allowed_groups,
+						allowed_group_ids: [...kind.allowed_group_ids],
+						addons: copyTicketAddons(kind.available_addons)
+					});
+				})
 			);
 			allowNavigation = true;
 			await goto(resolve('/activities/[id]', { id: activityId }));
@@ -1025,6 +1027,72 @@
 						users={userSuggestions}
 						view="memberships" />
 				</section>
+
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.sales_report()}</h2>
+						<p class="muted">{m.external_sales_help()}</p>
+					</div>
+					<div class="report-fees-field">
+						<MoneyInput
+							label={m.external_sale_fees()}
+							value={externalSaleFees}
+							optional
+							onchange={(value) => {
+								externalSaleFees = value;
+								reportError = null;
+							}} />
+					</div>
+					<div class="toolbar between">
+						<h3 class="section-title">
+							{m.external_sales()} <span class="pill">{externalSales.length}</span>
+						</h3>
+						<button class="button-link secondary" type="button" onclick={addExternalSale}>
+							<Plus size={16} />
+							{m.add_external_sale()}
+						</button>
+					</div>
+					{#if externalSales.length === 0}
+						<p class="empty-state">{m.empty()}</p>
+					{:else}
+						<div class="stack">
+							{#each externalSales as sale, index (index)}
+								<div class="external-sale-row">
+									<BookkeepingCategorySelect
+										value={sale.alcohol_category}
+										options={reportCategoryOptions}
+										onchange={(alcohol_category) =>
+											updateExternalSale(index, { alcohol_category })} />
+									<MoneyInput
+										label={m.external_sale_total()}
+										value={sale.total}
+										onchange={(value) =>
+											updateExternalSale(index, {
+												total: value ?? Number.NaN
+											})} />
+									<button
+										class="icon-button danger-button"
+										type="button"
+										aria-label={m.remove()}
+										onclick={() => removeExternalSale(index)}>
+										<Trash2 size={17} />
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					{#if reportError}<p class="error-banner" role="alert">{reportError}</p>{/if}
+					<div class="toolbar">
+						<button
+							class="button-link secondary"
+							type="button"
+							disabled={reporting}
+							onclick={() => void downloadReport()}>
+							<Download size={17} />
+							{reporting ? m.downloading_report() : m.download_report()}
+						</button>
+					</div>
+				</section>
 			{/if}
 
 			{#if editorTab === 3 && id && canEdit}
@@ -1089,74 +1157,6 @@
 							onclick={() => void createNotification()}>
 							<Plus size={16} />
 							{notificationSaving ? m.saving() : m.save_notification()}
-						</button>
-					</div>
-				</section>
-			{/if}
-
-			{#if editorTab === 2 && id && canEdit}
-				<section class="card card-pad stack">
-					<div>
-						<h2 class="section-title">{m.sales_report()}</h2>
-						<p class="muted">{m.external_sales_help()}</p>
-					</div>
-					<div class="report-fees-field">
-						<MoneyInput
-							label={m.external_sale_fees()}
-							value={externalSaleFees}
-							optional
-							onchange={(value) => {
-								externalSaleFees = value;
-								reportError = null;
-							}} />
-					</div>
-					<div class="toolbar between">
-						<h3 class="section-title">
-							{m.external_sales()} <span class="pill">{externalSales.length}</span>
-						</h3>
-						<button class="button-link secondary" type="button" onclick={addExternalSale}>
-							<Plus size={16} />
-							{m.add_external_sale()}
-						</button>
-					</div>
-					{#if externalSales.length === 0}
-						<p class="empty-state">{m.empty()}</p>
-					{:else}
-						<div class="stack">
-							{#each externalSales as sale, index (index)}
-								<div class="external-sale-row">
-									<BookkeepingCategorySelect
-										value={sale.alcohol_category}
-										options={reportCategoryOptions}
-										onchange={(alcohol_category) =>
-											updateExternalSale(index, { alcohol_category })} />
-									<MoneyInput
-										label={m.external_sale_total()}
-										value={sale.total}
-										onchange={(value) =>
-											updateExternalSale(index, {
-												total: value ?? Number.NaN
-											})} />
-									<button
-										class="icon-button danger-button"
-										type="button"
-										aria-label={m.remove()}
-										onclick={() => removeExternalSale(index)}>
-										<Trash2 size={17} />
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-					{#if reportError}<p class="error-banner" role="alert">{reportError}</p>{/if}
-					<div class="toolbar">
-						<button
-							class="button-link secondary"
-							type="button"
-							disabled={reporting}
-							onclick={() => void downloadReport()}>
-							<Download size={17} />
-							{reporting ? m.downloading_report() : m.download_report()}
 						</button>
 					</div>
 				</section>
