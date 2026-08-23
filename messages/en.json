@@ -265,6 +265,7 @@
 	"ticket_drafts": "Ticket kinds to create",
 	"add_ticket_kind": "Add ticket kind",
 	"empty_ticket_kind": "<empty ticket kind>",
+	"number_of": "no.",
 	"ticket_options": "Ticket options",
 	"include_dietary_preferences": "Ask for dietary preferences",
 	"organizers_after_creation": "The selected organizers will receive invitations after the activity is created.",

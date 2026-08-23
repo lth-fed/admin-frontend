@@ -140,11 +140,11 @@
 			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
 	);
 	const canDelete = $derived(Boolean(id && canEdit && form.is_hidden && tickets.length === 0));
-	const purchasableTickets = $derived(
-		tickets.filter(
-			(ticket) =>
-				detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id)?.max_tickets !== 0
-		)
+	const purchasableTickets: TicketKind[] = $derived(
+		tickets
+			.map((ticket) => detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id))
+			.filter((tk) => tk?.max_tickets !== 0 && tk !== undefined)
+			.map((tk) => tk!)
 	);
 	const hasUnsavedChanges = $derived(
 		(savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot) ||
@@ -429,7 +429,7 @@
 		}
 		const targetIds =
 			notificationTarget === '$all'
-				? purchasableTickets.map((ticket) => ticket.id)
+				? purchasableTickets.map((ticket) => ticket.ticket_kind_id)
 				: [notificationTarget];
 		if (targetIds.length === 0) {
 			error = `${m.notification_target()}: ${m.required_fields()}`;
@@ -953,16 +953,20 @@
 					{#if purchasableTickets.length === 0}<p class="empty-state">
 							{m.empty()}
 						</p>{:else}<ul class="list">
-							{#each purchasableTickets as ticket (ticket.id)}<li>
+							{#each purchasableTickets as ticket (ticket.ticket_kind_id)}<li>
 									<div class="list-main">
-										<strong>{localize(ticket.name, '').trim() || m.empty_ticket_kind()}</strong
+										<strong
+											>{localize(ticket.ticket_kind_name, '').trim() ||
+												m.empty_ticket_kind()}</strong
 										><span
-											>{kronor(ticket.price)} · {dateTime(ticket.purchasing_available_start)}</span>
+											>{kronor(ticket.price)} · {ticket.max_tickets}{m.number_of()} · {dateTime(
+												ticket.purchasing_available_start
+											)}</span>
 									</div>
 									{#if canEdit}
 										<a
 											class="button-link secondary"
-											href={resolve('/tickets/[id]', { id: ticket.id })}>{m.edit()}</a>
+											href={resolve('/tickets/[id]', { id: ticket.ticket_kind_id })}>{m.edit()}</a>
 									{/if}
 								</li>{/each}
 						</ul>{/if}
@@ -1140,8 +1144,8 @@
 							options={[
 								{ id: '$all', label: m.all_ticket_kinds() },
 								...purchasableTickets.map((ticket) => ({
-									id: ticket.id,
-									label: localize(ticket.name, '').trim() || m.empty_ticket_kind()
+									id: ticket.ticket_kind_id,
+									label: localize(ticket.ticket_kind_name, '').trim() || m.empty_ticket_kind()
 								}))
 							]}
 							onchange={({ value }) => (notificationTarget = String(value))} />

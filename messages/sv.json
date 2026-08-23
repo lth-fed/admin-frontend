@@ -266,6 +266,7 @@
 	"ticket_drafts": "Biljettyper som skapas",
 	"add_ticket_kind": "Lägg till biljettyp",
 	"empty_ticket_kind": "<tom biljettyp>",
+	"number_of": "st",
 	"ticket_options": "Biljettalternativ",
 	"include_dietary_preferences": "Fråga efter matpreferens",
 	"organizers_after_creation": "De valda arrangörerna får inbjudningar efter att aktiviteten skapats.",
