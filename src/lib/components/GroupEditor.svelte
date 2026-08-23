@@ -565,14 +565,14 @@
 					onremove={(groupId) =>
 						action(() => removeGroupRelation(id!, 'joiner-groups', groupId), refreshRelations)} />
 				<UserList
-					title={m.members()}
+					title={`${m.members()} (${members.length})`}
 					items={members}
 					suggestions={userSuggestions}
 					allowCustomId
 					onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
 					onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
 				<div>
-					<h2 class="section-title">{m.member_requests()}</h2>
+					<h2 class="section-title">{m.member_requests()} ({requests.length})</h2>
 					{#if requests.length === 0}
 						<p class="empty-state">{m.empty()}</p>
 					{:else}
@@ -615,7 +615,7 @@
 		{#if id && (!directAdmin || editorTab === 3)}
 			<section class="card card-pad">
 				<UserList
-					title={m.administrators()}
+					title={`${m.administrators()} (${admins.length})`}
 					items={admins}
 					suggestions={userSuggestions.filter((user) => user.user_id.startsWith('email:'))}
 					allowEmailInvite
