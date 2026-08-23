@@ -51,7 +51,7 @@
 	let error = $state<string | null>(null);
 	let invalidField = $state<string | null>(null);
 	let members = $state<AdminUser[]>([]);
-	let requests = $state<string[]>([]);
+	let requests = $state<AdminUser[]>([]);
 	let admins = $state<AdminUser[]>([]);
 	let userSuggestions = $state<AdminUser[]>([]);
 	let joiners = $state<Group[]>([]);
@@ -60,6 +60,7 @@
 	let originalPath = $state('');
 	let tree = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
+	let currentUserId = $state('');
 	let directAdmin = $state(false);
 	let savedFormSnapshot = $state('');
 	let notifications = $state<GroupNotification[]>([]);
@@ -127,6 +128,7 @@
 			tree = loadedTree;
 			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
+			currentUserId = me.id;
 			const group = tree.find((item) => item.id === id);
 			if (!group) throw new Error(m.not_found());
 			directAdmin = adminGroupIds.includes(group.id);
@@ -291,7 +293,18 @@
 			return;
 		}
 		if (admins.some((admin) => admin.user_id === userId)) return;
-		await action(() => addAdmin(id!, userId), refreshPeople);
+		error = null;
+		try {
+			await addAdmin(id!, userId);
+			if (userId === currentUserId) {
+				allowNavigation = true;
+				window.location.reload();
+				return;
+			}
+			await refreshPeople();
+		} catch (cause) {
+			error = frontendError(cause);
+		}
 	}
 
 	async function removeAdministrator(userId: string): Promise<void> {
@@ -376,22 +389,7 @@
 		}
 	}
 	async function denyRequest(userId: string): Promise<void> {
-		error = null;
-		const wasAlreadyMember =
-			members.some((member) => member.user_id === userId) ||
-			admins.some((admin) => admin.user_id === userId);
-		try {
-			await denyMemberRequest(id!, userId, wasAlreadyMember);
-		} catch (cause) {
-			error = frontendError(cause);
-		}
-		// The two API calls are intentionally sequential and not atomic. Refresh even
-		// if removal fails, because accepting the request may already have succeeded.
-		try {
-			await refreshPeople();
-		} catch (cause) {
-			if (error === null) error = frontendError(cause);
-		}
+		await action(() => denyMemberRequest(id!, userId), refreshPeople);
 	}
 	async function hide(): Promise<void> {
 		if (!id || !confirm(m.delete_group_confirm())) return;
@@ -579,19 +577,23 @@
 						<p class="empty-state">{m.empty()}</p>
 					{:else}
 						<ul class="list compact-list">
-							{#each requests as userId (userId)}
+							{#each requests as request (request.user_id)}
 								<li>
-									<span class="mono">{userId}</span>
+									<div class="list-main">
+										{#if request.name}<strong>{request.name}</strong>{/if}
+										<span class="mono">{request.user_id}</span>
+									</div>
 									<div class="toolbar">
 										<button
 											class="button-link secondary"
 											type="button"
-											onclick={() => action(() => approveMemberRequest(id!, userId), refreshPeople)}
+											onclick={() =>
+												action(() => approveMemberRequest(id!, request.user_id), refreshPeople)}
 											>{m.approve()}</button
 										><button
 											class="button-link secondary danger-button"
 											type="button"
-											onclick={() => void denyRequest(userId)}>{m.deny()}</button>
+											onclick={() => void denyRequest(request.user_id)}>{m.deny()}</button>
 									</div>
 								</li>
 							{/each}

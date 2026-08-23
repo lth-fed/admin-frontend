@@ -212,7 +212,7 @@ a {
 	width: 100%;
 	border: 1px solid #3a403c;
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 4.3px 8px;
 	color: #e4e7e5;
 	background: #141715;
 	font-weight: 450;
@@ -603,6 +603,21 @@ a {
 }
 .calendar-shell .wx-scrollable-section {
 	overflow: hidden;
+}
+.calendar-shell .wx-box-event {
+	min-height: 42px;
+}
+.calendar-shell .wx-y-header-cell[role='button'] {
+	align-items: center;
+	padding-top: 0;
+	cursor: pointer;
+}
+.calendar-shell .wx-y-header-cell[role='button']:hover,
+.calendar-shell .wx-y-header-cell[role='button']:focus-visible {
+	color: #fff;
+	background: #292e2b;
+	outline: 1px solid #68716b;
+	outline-offset: -1px;
 }
 .calendar-period {
 	color: #e4e7e5;

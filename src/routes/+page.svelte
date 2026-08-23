@@ -9,7 +9,7 @@
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type { ActivityHostInvite, BriefActivity } from '$lib/api/types';
-	import { createCalendarWords, dateTime, localize } from '$lib/i18n';
+	import { createCalendarWords, dateTime, isoWeekNumber, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import {
@@ -20,7 +20,7 @@
 	} from '@svar-ui/svelte-calendar';
 	import { Locale as CalendarLocale, Select } from '@svar-ui/svelte-core';
 	import { Check, ChevronLeft, ChevronRight, Plus, Users, X } from '@lucide/svelte';
-	import { SvelteDate, SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	let activities = $state<BriefActivity[]>([]);
 	let hostInvites = $state<ActivityHostInvite[]>([]);
@@ -32,6 +32,7 @@
 	let currentDate = $state(new Date());
 	let visibleRange = $state({ start: new Date(), end: new Date() });
 	let calendarApi: CalendarInstanceApi | null = null;
+	let calendarShell: HTMLElement;
 	const respondingInvites = new SvelteSet<string>();
 	const selectedPeriod = $derived(formatPeriod(currentView, currentDate, visibleRange));
 	const calendarLanguage = getLocale() === 'sv' ? 'sv-SE' : 'en-GB';
@@ -41,7 +42,8 @@
 			id: 'day',
 			sections: {
 				timeGrid: {
-					yScale: { startHour: 8, endHour: 24, ui: { minUnitHeight: 0 } }
+					yScale: { startHour: 0, endHour: 24, ui: { minUnitHeight: 0 } },
+					ui: { drag: false, dragCreate: true }
 				}
 			}
 		},
@@ -49,12 +51,27 @@
 			id: 'week',
 			sections: {
 				timeGrid: {
-					yScale: { startHour: 8, endHour: 24, ui: { minUnitHeight: 0 } }
+					yScale: { startHour: 0, endHour: 24, ui: { minUnitHeight: 0 } },
+					ui: { drag: false, dragCreate: true }
 				}
 			}
 		},
-		'month'
+		{
+			id: 'month',
+			sections: {
+				month: {
+					yScale: { visible: true, format: 'weekNumberFormat' },
+					ui: { drag: false, dragCreate: true }
+				}
+			}
+		}
 	];
+
+	$effect(() => {
+		currentView;
+		visibleRange;
+		queueMicrotask(enhanceMonthWeekHeaders);
+	});
 
 	const organizations = $derived(
 		[
@@ -71,14 +88,56 @@
 			.sort((a, b) => +new Date(a.time_start) - +new Date(b.time_start))
 	);
 	const events = $derived<CalendarEvent[]>(
-		filtered.map((activity) => ({
-			id: activity.id,
-			text: localize(activity.title),
-			start: new Date(activity.time_start),
-			end: new Date(activity.time_end),
-			color: activity.is_hidden ? '#3f4541' : '#626b65'
-		}))
+		filtered.flatMap((activity) => activityCalendarEvents(activity, currentView !== 'month'))
 	);
+
+	function activityCalendarEvents(activity: BriefActivity, splitByDay: boolean): CalendarEvent[] {
+		const start = new Date(activity.time_start);
+		const end = new Date(activity.time_end);
+		const base = {
+			text: localize(activity.title),
+			color: activity.is_hidden ? '#3f4541' : '#626b65'
+		};
+		if (
+			!splitByDay ||
+			start.toDateString() === end.toDateString() ||
+			end.getTime() - start.getTime() >= 86_400_000
+		)
+			return [{ id: activity.id, start, end, ...base }];
+
+		const segments: CalendarEvent[] = [];
+		const day = new Date(start);
+		day.setHours(0, 0, 0, 0);
+		while (day < end) {
+			const nextDay = new Date(day);
+			nextDay.setDate(nextDay.getDate() + 1);
+			const segmentStart = new Date(Math.max(start.getTime(), day.getTime()));
+			const segmentEnd = new Date(Math.min(end.getTime(), nextDay.getTime() - 1));
+			if (segmentStart < segmentEnd) {
+				segments.push({
+					id: `${activity.id}:${day.toISOString().slice(0, 10)}`,
+					start: segmentStart,
+					end: segmentEnd,
+					...base
+				});
+			}
+			day.setDate(day.getDate() + 1);
+		}
+		return segments;
+	}
+
+	function activityIdFromCalendarEvent(id: string | number): string {
+		return String(id).split(':', 1)[0];
+	}
+
+	function createActivityFromCalendarRange(event: Partial<CalendarEvent>): void {
+		if (!(event.start instanceof Date) || !(event.end instanceof Date)) return;
+		const query = new URLSearchParams({
+			start: event.start.toISOString(),
+			end: event.end.toISOString()
+		});
+		void goto(`${resolve('/activities/new')}?${query}`);
+	}
 
 	$effect(() => {
 		void loadHostInvites();
@@ -125,15 +184,6 @@
 		}
 	}
 
-	function weekNumber(date: Date): number {
-		const thursday = new SvelteDate(date);
-		thursday.setHours(0, 0, 0, 0);
-		thursday.setDate(thursday.getDate() + 3 - ((thursday.getDay() + 6) % 7));
-		const firstThursday = new SvelteDate(thursday.getFullYear(), 0, 4);
-		firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
-		return 1 + Math.round((thursday.getTime() - firstThursday.getTime()) / 604_800_000);
-	}
-
 	function formatPeriod(view: string, date: Date, range: { start: Date; end: Date }): string {
 		const locale = getLocale() === 'sv' ? 'sv-SE' : 'en-GB';
 		if (view === 'month')
@@ -146,7 +196,7 @@
 				year: 'numeric'
 			}).format(date);
 
-		return `${m.week()} ${weekNumber(range.start)}`;
+		return `${m.week()} ${isoWeekNumber(range.start)}`;
 	}
 
 	function initCalendar(api: CalendarInstanceApi): void {
@@ -167,7 +217,10 @@
 		api.on('navigate-to', reload);
 		api.on('select-event', (event) => {
 			if ('id' in event && event.id)
-				void goto(resolve('/activities/[id]', { id: String(event.id) }));
+				void goto(resolve('/activities/[id]', { id: activityIdFromCalendarEvent(event.id) }));
+		});
+		api.on('add-event', (action) => {
+			if ('event' in action) createActivityFromCalendarRange(action.event);
 		});
 		const state = api.getState();
 		currentView = state.currentView;
@@ -185,6 +238,54 @@
 
 	function changeView(value: string | number): void {
 		void calendarApi?.exec('navigate-to', { view: String(value) });
+	}
+
+	function monthWeekHeader(target: EventTarget | null): HTMLElement | null {
+		if (currentView !== 'month' || !(target instanceof Element)) return null;
+		return target.closest<HTMLElement>('.wx-y-header-cell');
+	}
+
+	function openMonthWeek(header: HTMLElement): void {
+		const headers = [...calendarShell.querySelectorAll<HTMLElement>('.wx-y-header-cell')];
+		const index = headers.indexOf(header);
+		if (index < 0) return;
+		const date = new Date(visibleRange.start);
+		date.setDate(date.getDate() + index * 7);
+		void calendarApi?.exec('navigate-to', { view: 'week', date });
+	}
+
+	function enhanceMonthWeekHeaders(): void {
+		if (currentView !== 'month' || !calendarShell) return;
+		for (const header of calendarShell.querySelectorAll<HTMLElement>('.wx-y-header-cell')) {
+			header.role = 'button';
+			header.tabIndex = 0;
+			header.ariaLabel = `${m.week()} ${header.textContent?.trim() ?? ''}`;
+		}
+	}
+
+	function handleCalendarClick(event: MouseEvent): void {
+		const header = monthWeekHeader(event.target);
+		if (header) openMonthWeek(header);
+	}
+
+	function handleCalendarKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		const header = monthWeekHeader(event.target);
+		if (!header) return;
+		event.preventDefault();
+		openMonthWeek(header);
+	}
+
+	function weekHeaderNavigation(node: HTMLElement): { destroy: () => void } {
+		calendarShell = node;
+		node.addEventListener('click', handleCalendarClick);
+		node.addEventListener('keydown', handleCalendarKeydown);
+		return {
+			destroy: () => {
+				node.removeEventListener('click', handleCalendarClick);
+				node.removeEventListener('keydown', handleCalendarKeydown);
+			}
+		};
 	}
 </script>
 
@@ -285,16 +386,14 @@
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 
 <div class="agenda-grid">
-	<section class="card calendar-shell" aria-label={m.calendar()} class:loading>
+	<section
+		class="card calendar-shell"
+		aria-label={m.calendar()}
+		class:loading
+		use:weekHeaderNavigation>
 		<CalendarLocale words={calendarWords}>
 			<CalendarTheme>
-				<Calendar
-					{events}
-					view="week"
-					views={calendarViews}
-					toolbar={null}
-					readonly
-					init={initCalendar} />
+				<Calendar {events} view="week" views={calendarViews} toolbar={null} init={initCalendar} />
 			</CalendarTheme>
 		</CalendarLocale>
 	</section>

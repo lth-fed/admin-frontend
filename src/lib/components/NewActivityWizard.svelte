@@ -61,6 +61,19 @@
 		body: PutNotification;
 	};
 
+	function initialActivityTimes(): { start: string; end: string } {
+		const fallbackStart = new Date(Date.now() + 86_400_000);
+		const requestedStart = new Date(page.url.searchParams.get('start') ?? fallbackStart);
+		const start = Number.isNaN(requestedStart.getTime()) ? fallbackStart : requestedStart;
+		const fallbackEnd = new Date(start.getTime() + 3_600_000);
+		const requestedEnd = new Date(page.url.searchParams.get('end') ?? fallbackEnd);
+		const end =
+			Number.isNaN(requestedEnd.getTime()) || requestedEnd <= start ? fallbackEnd : requestedEnd;
+		return { start: start.toISOString(), end: end.toISOString() };
+	}
+
+	const initialTimes = initialActivityTimes();
+
 	const activityId = crypto.randomUUID();
 	const steps = [
 		m.creation_step_details(),
@@ -95,8 +108,8 @@
 		title: { sv: '', en: '' },
 		description: { sv: '', en: '' },
 		location: { name: { sv: '', en: '' }, directions: { sv: '', en: '' }, url: '' },
-		time_start: new Date(Date.now() + 86_400_000).toISOString(),
-		time_end: new Date(Date.now() + 90_000_000).toISOString(),
+		time_start: initialTimes.start,
+		time_end: initialTimes.end,
 		image_id: '',
 		is_hidden: true,
 		is_hidden_for_other_admins: false,

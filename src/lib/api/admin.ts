@@ -228,7 +228,7 @@ export async function deleteGroupNotification(groupId: string, id: string): Prom
 	);
 }
 
-export async function listMemberRequests(groupId: string): Promise<string[]> {
+export async function listMemberRequests(groupId: string): Promise<AdminUser[]> {
 	return responseData(
 		await api.GET('/admin/groups/{group_id}/member-requests', {
 			params: { path: { group_id: groupId } }
@@ -244,22 +244,9 @@ export async function approveMemberRequest(groupId: string, memberId: string): P
 	);
 }
 
-/** The API has no reject endpoint, so consume the request and remove only a new membership. */
-export async function denyMemberRequest(
-	groupId: string,
-	memberId: string,
-	wasAlreadyMember: boolean
-): Promise<void> {
-	const accepted = await api.PUT('/admin/groups/{group_id}/member-requests/{member_id}', {
-		params: { path: { group_id: groupId, member_id: memberId } }
-	});
-	if (wasAlreadyMember) {
-		mutation(accepted);
-		return;
-	}
-	responseData(accepted);
+export async function denyMemberRequest(groupId: string, memberId: string): Promise<void> {
 	mutation(
-		await api.DELETE('/admin/groups/{group_id}/members/{member_id}', {
+		await api.DELETE('/admin/groups/{group_id}/member-requests/{member_id}', {
 			params: { path: { group_id: groupId, member_id: memberId } }
 		})
 	);

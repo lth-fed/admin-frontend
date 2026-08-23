@@ -893,10 +893,12 @@
 										</span>
 									{:else}
 										<div class="host-tree-invite">
-											<GroupIcon
-												url={row.group.logo_url}
-												name={localize(row.group.name, row.group.path)} />
-											<span>{localize(row.group.name, row.group.path)}</span>
+											<span class="flex items-center gap-2">
+												<GroupIcon
+													url={row.group.logo_url}
+													name={localize(row.group.name, row.group.path)} />
+												<span>{localize(row.group.name, row.group.path)}</span>
+											</span>
 											{#if id}
 												<button
 													class="button-link secondary compact"
@@ -948,8 +950,9 @@
 								><Plus size={17} /> {m.new_ticket()}</a>
 						{/if}
 					</div>
-					{#if purchasableTickets.length === 0}<p class="empty-state">{m.empty()}</p>{:else}<ul
-							class="list">
+					{#if purchasableTickets.length === 0}<p class="empty-state">
+							{m.empty()}
+						</p>{:else}<ul class="list">
 							{#each purchasableTickets as ticket (ticket.id)}<li>
 									<div class="list-main">
 										<strong>{localize(ticket.name, '').trim() || m.empty_ticket_kind()}</strong
@@ -1102,8 +1105,9 @@
 						<p class="muted">{m.default_release_notifications()}</p>
 						<p class="muted">{m.notification_recipients_help()}</p>
 					</div>
-					{#if scheduledNotifications.length === 0}<p class="empty-state">{m.empty()}</p>{:else}<ul
-							class="list">
+					{#if scheduledNotifications.length === 0}<p class="empty-state">
+							{m.empty()}
+						</p>{:else}<ul class="list">
 							{#each scheduledNotifications as notification (`${notification.ticketKindId}-${notification.kind}`)}<li>
 									<div class="list-main">
 										<strong>{localize(notification.title, notification.kind)}</strong><span
