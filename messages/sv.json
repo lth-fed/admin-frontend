@@ -112,6 +112,7 @@
 	"no_addon_answers": "Inga köpta biljetter innehåller svar på tillval än.",
 	"answer_count": "{count} svar",
 	"text_answers": "Textsvar",
+	"export_addon_answers": "Exportera {addon} som CSV",
 	"inviting_host": "Bjuder in…",
 	"host_invite_pending": "Inbjudan väntar",
 	"host_remove_own_only": "Gruppens administratörer hanterar arrangören",

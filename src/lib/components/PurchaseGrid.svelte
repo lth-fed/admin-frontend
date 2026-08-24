@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AdminUser, Group, PurchasedTicket, TicketKind } from '$lib/api/types';
+	import PurchaseItemCell from '$lib/components/PurchaseItemCell.svelte';
 	import { kronor, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { Grid, WillowDark } from '@svar-ui/svelte-grid';
@@ -30,7 +31,14 @@
 					{ id: 'count', header: m.members(), width: 100 }
 				]
 			: [
-					{ id: 'item', header: m.purchase_item(), treetoggle: true, flexgrow: 2, width: 230 },
+					{
+						id: 'item',
+						header: m.purchase_item(),
+						treetoggle: true,
+						flexgrow: 2,
+						width: 230,
+						cell: PurchaseItemCell
+					},
 					{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
 					{ id: 'count', header: m.purchase_count(), width: 100 },
 					{ id: 'total', header: m.purchase_total(), width: 130 }
@@ -127,10 +135,12 @@
 	}
 
 	type Breakdown = { id: string; item: string; type: string; buyers: IRow[]; total: number };
+	type AddonBreakdown = Breakdown & { answers: SvelteMap<string, Breakdown> };
+	type AddonExport = { name: string; answers: { name: string; count: number }[] };
 
 	function buildBreakdownRows(): IRow[] {
 		const baseKinds = new SvelteMap<string, Breakdown>();
-		const addons = new SvelteMap<string, Breakdown & { options: SvelteMap<string, Breakdown> }>();
+		const addons = new SvelteMap<string, AddonBreakdown>();
 
 		for (const ticket of purchases) {
 			const kind = kindsById.get(ticket.ticket_kind_id);
@@ -162,13 +172,13 @@
 					type: m.addons(),
 					buyers: [],
 					total: 0,
-					options: new SvelteMap<string, Breakdown>()
+					answers: new SvelteMap<string, Breakdown>()
 				};
 				for (const option of addon.options.filter((item) =>
 					answer.selected_options.includes(item.idx)
 				)) {
-					const optionKey = normalizedName(option.name);
-					const optionRow = addonRow.options.get(optionKey) ?? {
+					const optionKey = `option:${normalizedName(option.name)}`;
+					const optionRow = addonRow.answers.get(optionKey) ?? {
 						id: `${addonRow.id}:option:${optionKey}`,
 						item: localize(option.name),
 						type: m.addon_option(),
@@ -183,26 +193,27 @@
 						count: 1,
 						total: kronor(option.price)
 					});
-					addonRow.options.set(optionKey, optionRow);
+					addonRow.answers.set(optionKey, optionRow);
 					addonRow.total += option.price;
 				}
-				if (answer.selected_text.trim()) {
-					const optionKey = '$text';
-					const textRow = addonRow.options.get(optionKey) ?? {
-						id: `${addonRow.id}:text`,
-						item: m.text_answers(),
+				const selectedText = answer.selected_text.trim();
+				if (selectedText) {
+					const answerKey = `text:${selectedText}`;
+					const textRow = addonRow.answers.get(answerKey) ?? {
+						id: `${addonRow.id}:text:${selectedText}`,
+						item: selectedText,
 						type: m.text_response(),
 						buyers: [],
 						total: 0
 					};
 					textRow.buyers.push({
 						id: `${textRow.id}:buyer:${ticket.id}`,
-						item: `${userLabel(ticket.owner_id)}: ${answer.selected_text.trim()}`,
-						type: m.text_response(),
+						item: userLabel(ticket.owner_id),
+						type: m.buyer(),
 						count: 1,
 						total: kronor(0)
 					});
-					addonRow.options.set(optionKey, textRow);
+					addonRow.answers.set(answerKey, textRow);
 				}
 				addons.set(addonKey, addonRow);
 			}
@@ -229,25 +240,63 @@
 					}
 				]
 			: [];
-		for (const addon of [...addons.values()].sort((a, b) => a.item.localeCompare(b.item))) {
-			const options = [...addon.options.values()].map((option) => ({
-				...option,
-				count: option.buyers.length,
-				total: kronor(option.total),
+		const sortedAddons = [...addons.values()].sort((a, b) => a.item.localeCompare(b.item));
+		for (const addon of sortedAddons) {
+			const answers = [...addon.answers.values()].map((answer) => ({
+				...answer,
+				count: answer.buyers.length,
+				total: kronor(answer.total),
 				open: false,
-				data: option.buyers
+				data: answer.buyers
 			}));
+			const addonExport: AddonExport = {
+				name: addon.item,
+				answers: [...addon.answers.values()].map((answer) => ({
+					name: answer.item,
+					count: answer.buyers.length
+				}))
+			};
 			rows.push({
 				id: addon.id,
 				item: addon.item,
 				type: addon.type,
-				count: options.reduce((sum, option) => sum + option.count, 0),
+				count: answers.reduce((sum, answer) => sum + answer.count, 0),
 				total: kronor(addon.total),
 				open: false,
-				data: options
+				data: answers,
+				addonExport: {
+					label: m.export_addon_answers({ addon: addon.item }),
+					run: () => exportAddonCsv(addonExport)
+				}
 			});
 		}
 		return rows;
+	}
+
+	function csvCell(value: string | number): string {
+		return `"${String(value).replaceAll('"', '""')}"`;
+	}
+
+	function exportAddonCsv(addon: AddonExport): void {
+		const csv = [
+			'name,count',
+			...addon.answers.map((answer) => `${csvCell(answer.name)},${answer.count}`)
+		].join('\r\n');
+		const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		const fileName = addon.name
+			.normalize('NFKD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.toLocaleLowerCase('sv')
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '');
+		link.href = url;
+		link.download = `${fileName || 'addon'}-answers.csv`;
+		document.body.append(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(url);
 	}
 
 	function buildMembershipRows(): IRow[] {

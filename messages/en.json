@@ -111,6 +111,7 @@
 	"no_addon_answers": "No purchased tickets contain add-on answers yet.",
 	"answer_count": "{count} answers",
 	"text_answers": "Text answers",
+	"export_addon_answers": "Export {addon} as CSV",
 	"inviting_host": "Inviting…",
 	"host_invite_pending": "Invitation pending",
 	"host_remove_own_only": "Its admins manage this organizer",
