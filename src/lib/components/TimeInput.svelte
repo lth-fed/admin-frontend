@@ -2,10 +2,12 @@
 	let {
 		value,
 		error = false,
+		disabled = false,
 		onchange
 	}: {
 		value: Date;
 		error?: boolean;
+		disabled?: boolean;
 		onchange: (hours: number, minutes: number) => void;
 	} = $props();
 
@@ -76,6 +78,7 @@
 	autocomplete="off"
 	aria-label="Time"
 	aria-invalid={error}
+	{disabled}
 	bind:value={text}
 	onfocus={(event) => {
 		editing = true;

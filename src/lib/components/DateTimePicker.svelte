@@ -9,11 +9,13 @@
 		label,
 		value,
 		error = false,
+		disabled = false,
 		onchange
 	}: {
 		label: string;
 		value: string;
 		error?: boolean;
+		disabled?: boolean;
 		onchange: (value: string) => void;
 	} = $props();
 
@@ -59,11 +61,12 @@
 			<DatePicker
 				value={date}
 				{error}
+				{disabled}
 				buttons={['today']}
 				format="%d/%m/%Y"
 				editable={parseDateInput}
 				onchange={({ value: next }) => changeDate(next)} />
 		</Locale>
-		<TimeInput value={date} {error} onchange={changeTime} />
+		<TimeInput value={date} {error} {disabled} onchange={changeTime} />
 	</div>
 </div>

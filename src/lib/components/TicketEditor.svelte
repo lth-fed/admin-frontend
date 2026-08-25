@@ -78,12 +78,7 @@
 		savedTicketSnapshot !== '' && serializeTicketEditor() !== savedTicketSnapshot
 	);
 	const hasUnsavedChanges = $derived(ticketDirty);
-	const bookkeepingOnly = $derived(
-		Boolean(
-			originalTicket?.has_been_purchased &&
-			new Date(originalTicket.purchasing_available_stop).getTime() <= now
-		)
-	);
+	const bookkeepingOnly = $derived(Boolean(originalTicket?.has_been_purchased));
 	const canDelete = $derived(
 		Boolean(
 			originalTicket &&
@@ -596,6 +591,7 @@
 				invited={allocatedFree}
 				capacityLabel={preset === 'free' || preset === 'simple' ? m.maximum_tickets() : undefined}
 				singleGroup={preset === 'none'}
+				releaseStartLocked={Boolean(originalTicket?.has_been_released)}
 				oninvitedchange={toggleAllocatedFree}
 				onchange={updateTicketForm} />
 			<div class="grid-2">

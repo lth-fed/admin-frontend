@@ -94,7 +94,7 @@
 	"delete_ticket_kind_unavailable": "En biljettyp kan bara tas bort om den saknar köpare, aldrig har släppts och släpps om mer än 20 minuter.",
 	"duplicate_addon": "Duplicera tillval",
 	"replace_ticket_confirm": "Den här biljettypen kan inte längre ändras. Stäng försäljningen och skapa den redigerade versionen som v2?",
-	"bookkeeping_only": "Försäljningen är stängd och biljetter har köpts. Nu kan endast bokföringsfördelningen ändras.",
+	"bookkeeping_only": "Biljetter har köpts. Nu kan endast bokföringsfördelningen ändras.",
 	"show_explanation": "Visa förklaring",
 	"ticket_preset": "Biljettmall",
 	"ticket_preset_help": "Välj den enklaste mallen som passar. Avancerad visar alla inställningar.",

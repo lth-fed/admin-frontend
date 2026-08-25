@@ -20,6 +20,7 @@
 		capacityLabel,
 		capacityMin = 1,
 		singleGroup = false,
+		releaseStartLocked = false,
 		invalidField = null,
 		oninvitedchange,
 		onchange
@@ -34,6 +35,7 @@
 		capacityLabel?: string;
 		capacityMin?: number;
 		singleGroup?: boolean;
+		releaseStartLocked?: boolean;
 		invalidField?: string | null;
 		oninvitedchange?: (invited: boolean) => void;
 		onchange: (value: PutTicketKind) => void;
@@ -93,7 +95,8 @@
 			<DateTimePicker
 				label={m.available_from()}
 				value={value.purchasing_available_start}
-				error={invalidField === m.available_from() || releaseTooSoon}
+				error={invalidField === m.available_from() || (!releaseStartLocked && releaseTooSoon)}
+				disabled={releaseStartLocked}
 				onchange={(purchasing_available_start) => update({ purchasing_available_start })} />
 			<DateTimePicker
 				label={m.available_until()}
