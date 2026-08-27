@@ -13,6 +13,7 @@
 	}>;
 	let {
 		title,
+		count,
 		items,
 		suggestions = [],
 		allowEmailInvite = false,
@@ -24,6 +25,7 @@
 		onremove
 	}: {
 		title: string;
+		count?: number;
 		items: Array<string | AdminUser>;
 		suggestions?: AdminUser[];
 		allowEmailInvite?: boolean;
@@ -39,7 +41,13 @@
 	let customIdDraft = $state('');
 	let busy = $state(false);
 	const comboOptions = $derived(
-		suggestions.map((user) => ({ id: user.user_id, label: user.name ?? user.user_id, user }))
+		suggestions.map((user) => ({
+			id: user.user_id,
+			// Combo resolves typed text back to an option by label. Include the
+			// stable ID so equal display names do not collapse to the first user.
+			label: `${user.name ?? user.user_id} · ${user.user_id}`,
+			user
+		}))
 	);
 	const trimmedValue = $derived(value.trim());
 	const emailValue = $derived(/^\S+@\S+\.\S+$/.test(emailDraft.trim()) ? emailDraft.trim() : '');
@@ -88,7 +96,10 @@
 </script>
 
 <div>
-	<h3 class="section-title">{title}</h3>
+	<h3 class="section-title">
+		{title}
+		{#if count !== undefined}<span class="pill">{count}</span>{/if}
+	</h3>
 	<div class="toolbar">
 		<label class="field" style="flex: 1">
 			<span>{addLabel}</span>

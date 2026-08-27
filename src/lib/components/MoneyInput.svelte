@@ -7,12 +7,14 @@
 		value,
 		optional = false,
 		error = false,
+		disabled = false,
 		onchange
 	}: {
 		label: string;
 		value: number | undefined;
 		optional?: boolean;
 		error?: boolean;
+		disabled?: boolean;
 		onchange: (value: number | undefined) => void;
 	} = $props();
 
@@ -80,6 +82,7 @@
 			spellcheck="false"
 			placeholder={m.money_input_placeholder()}
 			required={!optional}
+			{disabled}
 			aria-invalid={invalid}
 			value={draft}
 			onfocus={() => (focused = true)}

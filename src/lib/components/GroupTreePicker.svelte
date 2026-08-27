@@ -9,6 +9,7 @@
 		groups,
 		selectedIds,
 		disabled = false,
+		disabledTitle,
 		inheritDescendants = false,
 		onchange
 	}: {
@@ -16,6 +17,8 @@
 		groups: Group[];
 		selectedIds: string[];
 		disabled?: boolean;
+		/** Native tooltip shown when the picker is disabled. */
+		disabledTitle?: string;
 		/** A selected group grants access to every group below it in the path tree. */
 		inheritDescendants?: boolean;
 		onchange: (ids: string[]) => void | Promise<void>;
@@ -59,10 +62,14 @@
 		<GroupTreeExplorer {groups} revealIds={selectedIds}>
 			{#snippet children(row)}
 				{@const isInherited = inherited(row.group)}
-				<label class="host-tree-check" class:inherited-selection={isInherited}>
+				<label
+					class="host-tree-check"
+					class:inherited-selection={isInherited}
+					title={disabled ? disabledTitle : undefined}>
 					<input
 						type="checkbox"
 						disabled={disabled || isInherited}
+						title={disabled ? disabledTitle : undefined}
 						checked={selectedIds.includes(row.group.id) || isInherited}
 						onchange={(event) => toggle(row.group.id, event.currentTarget.checked)} />
 					<GroupIcon url={row.group.logo_url} name={localize(row.group.name, row.group.path)} />

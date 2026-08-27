@@ -78,7 +78,7 @@
 		savedTicketSnapshot !== '' && serializeTicketEditor() !== savedTicketSnapshot
 	);
 	const hasUnsavedChanges = $derived(ticketDirty);
-	const bookkeepingOnly = $derived(Boolean(originalTicket?.has_been_purchased));
+	const purchasedFieldsLocked = $derived(Boolean(originalTicket?.has_been_purchased));
 	const canDelete = $derived(
 		Boolean(
 			originalTicket &&
@@ -389,7 +389,7 @@
 
 	function changePreset(next: string | number): void {
 		const selected = String(next) as TicketPresetId;
-		if (selected === preset || bookkeepingOnly) return;
+		if (selected === preset || purchasedFieldsLocked) return;
 		const previousPreset = preset;
 		const removesAddons =
 			(selected === 'none' && form.addons.length > 0) ||
@@ -451,7 +451,6 @@
 		} catch (cause) {
 			if (
 				id &&
-				!bookkeepingOnly &&
 				originalTicket?.has_been_purchased &&
 				(!immutableTicketFieldsMatch(body, addons) ||
 					body.purchasing_available_start !== originalTicket.purchasing_available_start) &&
@@ -562,9 +561,11 @@
 {:else}
 	<form class="stack" novalidate onsubmit={submit}>
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
-		{#if bookkeepingOnly}<p class="info-banner" role="status">{m.bookkeeping_only()}</p>{/if}
-		<section class="card card-pad" inert={bookkeepingOnly}>
-			<div class="field preset-field">
+		{#if purchasedFieldsLocked}<p class="info-banner" role="status">
+				{m.purchased_ticket_edit_limits()}
+			</p>{/if}
+		<section class="card card-pad">
+			<div class="field preset-field" inert={purchasedFieldsLocked}>
 				<span>{m.ticket_preset()}</span>
 				<Select
 					value={preset}
@@ -592,6 +593,8 @@
 				capacityLabel={preset === 'free' || preset === 'simple' ? m.maximum_tickets() : undefined}
 				singleGroup={preset === 'none'}
 				releaseStartLocked={Boolean(originalTicket?.has_been_released)}
+				priceLocked={purchasedFieldsLocked}
+				groupsLocked={purchasedFieldsLocked}
 				oninvitedchange={toggleAllocatedFree}
 				onchange={updateTicketForm} />
 			<div class="grid-2">
@@ -642,7 +645,7 @@
 		</section>
 
 		{#if preset === 'free' || preset === 'simple' || preset === 'allocated'}
-			<label class="switch-field dietary-preferences-toggle" inert={bookkeepingOnly}>
+			<label class="switch-field dietary-preferences-toggle" inert={purchasedFieldsLocked}>
 				<Switch
 					value={hasDietaryPreferencesAddon(form.addons)}
 					onchange={({ value }) => toggleDietaryPreferences(value)} />
@@ -656,7 +659,7 @@
 				{reusableAddons}
 				{lockedAddonIds}
 				suggestions={addonNameSuggestions}
-				disabled={bookkeepingOnly}
+				structureLocked={purchasedFieldsLocked}
 				onoverride={overrideSharedAddon}
 				onchange={(addons) => (form.addons = addons)} />
 		{/if}

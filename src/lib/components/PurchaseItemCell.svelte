@@ -4,7 +4,7 @@
 
 	type PurchaseRow = IRow & {
 		item?: unknown;
-		addonExport?: {
+		csvExport?: {
 			label: string;
 			run: () => void;
 		};
@@ -13,21 +13,21 @@
 	let { row }: ICellProps = $props();
 	const purchaseRow = $derived(row as PurchaseRow);
 
-	function exportAddon(event: MouseEvent): void {
+	function exportCsv(event: MouseEvent): void {
 		event.stopPropagation();
-		purchaseRow.addonExport?.run();
+		purchaseRow.csvExport?.run();
 	}
 </script>
 
 <div class="purchase-cell">
 	<span class="purchase-label">{String(purchaseRow.item ?? '')}</span>
-	{#if purchaseRow.addonExport}
+	{#if purchaseRow.csvExport}
 		<button
-			class="button-link secondary compact addon-export-button"
+			class="button-link secondary compact csv-export-button"
 			type="button"
-			aria-label={purchaseRow.addonExport.label}
-			title={purchaseRow.addonExport.label}
-			onclick={exportAddon}>
+			aria-label={purchaseRow.csvExport.label}
+			title={purchaseRow.csvExport.label}
+			onclick={exportCsv}>
 			<Download size={16} />
 		</button>
 	{/if}
@@ -49,7 +49,7 @@
 		white-space: nowrap;
 	}
 
-	.addon-export-button {
+	.csv-export-button {
 		flex: 0 0 auto;
 		margin-left: auto;
 		padding: 0px;

@@ -264,7 +264,7 @@
 				total: kronor(addon.total),
 				open: false,
 				data: answers,
-				addonExport: {
+				csvExport: {
 					label: m.export_addon_answers({ addon: addon.item }),
 					run: () => exportAddonCsv(addonExport)
 				}
@@ -282,17 +282,24 @@
 			'name,count',
 			...addon.answers.map((answer) => `${csvCell(answer.name)},${answer.count}`)
 		].join('\r\n');
-		const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement('a');
-		const fileName = addon.name
+		downloadCsv(csv, `${fileSlug(addon.name) || 'addon'}-answers.csv`);
+	}
+
+	function fileSlug(value: string): string {
+		return value
 			.normalize('NFKD')
 			.replace(/[\u0300-\u036f]/g, '')
 			.toLocaleLowerCase('sv')
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '');
+	}
+
+	function downloadCsv(csv: string, fileName: string): void {
+		const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
 		link.href = url;
-		link.download = `${fileName || 'addon'}-answers.csv`;
+		link.download = fileName;
 		document.body.append(link);
 		link.click();
 		link.remove();

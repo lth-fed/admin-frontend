@@ -98,6 +98,14 @@ export async function listActivityVerifiers(activityId: string): Promise<string[
 	);
 }
 
+export async function getVerifiedTicketHolderCount(activityId: string): Promise<number> {
+	return responseData(
+		await api.GET('/admin/activities/{activity_id}/verified-ticket-holders', {
+			params: { path: { activity_id: activityId } }
+		})
+	);
+}
+
 export async function addActivityVerifier(activityId: string, verifierId: string): Promise<void> {
 	mutation(
 		await api.PUT('/admin/activities/{activity_id}/verifiers/{verifier_id}', {

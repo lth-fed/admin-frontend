@@ -21,6 +21,8 @@
 		capacityMin = 1,
 		singleGroup = false,
 		releaseStartLocked = false,
+		priceLocked = false,
+		groupsLocked = false,
 		invalidField = null,
 		oninvitedchange,
 		onchange
@@ -36,6 +38,8 @@
 		capacityMin?: number;
 		singleGroup?: boolean;
 		releaseStartLocked?: boolean;
+		priceLocked?: boolean;
+		groupsLocked?: boolean;
 		invalidField?: string | null;
 		oninvitedchange?: (invited: boolean) => void;
 		onchange: (value: PutTicketKind) => void;
@@ -66,7 +70,7 @@
 			onchange={(name) => update({ name })} />
 	{/if}
 	{#if showInvitedToggle && oninvitedchange}
-		<label class="switch-field">
+		<label class="switch-field" inert={priceLocked}>
 			<Switch value={invited} onchange={({ value }) => oninvitedchange(value)} />
 			<span>{m.invited_ticket()}</span>
 		</label>
@@ -76,6 +80,7 @@
 			label={m.price()}
 			value={value.price}
 			error={invalidField === m.price()}
+			disabled={priceLocked}
 			onchange={(price) => update({ price: price ?? Number.NaN })} />
 	{/if}
 	{#if capacityLabel}
@@ -112,5 +117,6 @@
 	title={m.allowed_groups()}
 	{groups}
 	selectedIds={value.allowed_group_ids}
+	disabled={groupsLocked}
 	inheritDescendants={!singleGroup}
 	onchange={(ids) => update({ allowed_group_ids: singleGroup ? ids.slice(-1) : ids })} />
