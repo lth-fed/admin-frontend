@@ -4,7 +4,6 @@
 	import { auth } from '$lib/auth.svelte';
 	import { getMe, saveLanguage } from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import favicon from '$lib/assets/favicon.svg';
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime';
@@ -67,10 +66,7 @@
 	}
 </script>
 
-<svelte:head>
-	<link rel="icon" href={favicon} />
-	<title>{m.app_name()}</title>
-</svelte:head>
+<svelte:head><title>{m.app_name()}</title></svelte:head>
 
 <WillowDark>
 	{#if callbackPage}
@@ -83,7 +79,7 @@
 	{:else if auth.status === 'anonymous'}
 		<main class="login-stage">
 			<section class="login-card">
-				<div class="brand-mark"><CalendarDays size={30} /></div>
+				<div class="brand-mark"><img src="/favicon.svg" alt="" /></div>
 				<p class="eyebrow">{m.app_name()}</p>
 				<h1>{m.login_title()}</h1>
 				<p class="muted">{m.login_description()}</p>
@@ -118,14 +114,17 @@
 	{:else}
 		<div class="app-frame">
 			<header class="mobile-header">
-				<a class="brand" href={resolve('/')}>{m.app_name()}</a>
+				<a class="brand" href={resolve('/')}>
+					<img src="/favicon.svg" alt="" />
+					<span>{m.app_name()}</span>
+				</a>
 				<button class="icon-button" onclick={() => (menuOpen = !menuOpen)} aria-label="Menu">
 					{#if menuOpen}<X />{:else}<Menu />{/if}
 				</button>
 			</header>
 			<aside class:open={menuOpen} class="sidebar">
 				<a class="sidebar-brand" href={resolve('/')} onclick={() => (menuOpen = false)}>
-					<span class="brand-mark small"><CalendarDays size={22} /></span>
+					<span class="brand-mark small"><img src="/favicon.svg" alt="" /></span>
 					<span>{m.app_name()}</span>
 				</a>
 				<nav aria-label="Main navigation">
