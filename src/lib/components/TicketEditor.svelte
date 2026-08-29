@@ -16,6 +16,7 @@
 	import type { Group, PutTicketKind } from '$lib/api/types';
 	import AddonEditor from '$lib/components/AddonEditor.svelte';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
+	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
 	import { copiedLocalizedTitle, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
@@ -67,7 +68,7 @@
 		min_tickets: 0,
 		allow_transfer_ticket_start: new Date().toISOString(),
 		allow_transfer_ticket_stop: new Date(Date.now() + 31_536_000_000).toISOString(),
-		allow_transfer_ticket_bypass_allowed_groups: false,
+		transfer_group_ids: [],
 		allowed_group_ids: [],
 		addons: [createDietaryPreferencesAddon()]
 	});
@@ -136,6 +137,7 @@
 				addonNameSuggestions = addonNames;
 				activityStart = activity.time_start;
 				form.activity_id = activityId;
+				form.transfer_group_ids = [activity.creator_id];
 				form.allow_transfer_ticket_start = form.purchasing_available_start;
 				form.allow_transfer_ticket_stop = activityStart;
 				savedTicketSnapshot = serializeTicketEditor();
@@ -172,8 +174,7 @@
 				min_tickets: ticket.min_tickets,
 				allow_transfer_ticket_start: ticket.allow_transfer_ticket_start,
 				allow_transfer_ticket_stop: ticket.allow_transfer_ticket_stop,
-				allow_transfer_ticket_bypass_allowed_groups:
-					ticket.allow_transfer_ticket_bypass_allowed_groups,
+				transfer_group_ids: [...ticket.transfer_group_ids],
 				allowed_group_ids: [...ticket.allowed_group_ids],
 				addons: structuredClone(ticket.available_addons)
 			};
@@ -306,6 +307,12 @@
 		const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 		if (!body.allowed_group_ids.every((groupId) => uuid.test(groupId)))
 			return { field: m.allowed_groups(), message: m.invalid_group_ids() };
+		if (
+			transfersEnabled &&
+			(body.transfer_group_ids.length === 0 ||
+				!body.transfer_group_ids.every((groupId) => uuid.test(groupId)))
+		)
+			return { field: m.transfer_groups(), message: m.required_fields() };
 		if (preset === 'none' && body.allowed_group_ids.length !== 1)
 			return { field: m.allowed_groups(), message: m.preset_requires_one_group() };
 		if (preset === 'allocated' && body.allowed_group_ids.length === 0)
@@ -337,8 +344,7 @@
 			min_tickets: originalTicket.min_tickets,
 			allow_transfer_ticket_start: originalTicket.allow_transfer_ticket_start,
 			allow_transfer_ticket_stop: originalTicket.allow_transfer_ticket_stop,
-			allow_transfer_ticket_bypass_allowed_groups:
-				originalTicket.allow_transfer_ticket_bypass_allowed_groups,
+			transfer_group_ids: [...originalTicket.transfer_group_ids],
 			allowed_group_ids: [...originalTicket.allowed_group_ids],
 			addons: $state.snapshot(originalTicket.available_addons)
 		};
@@ -378,6 +384,8 @@
 		if (enabled) {
 			form.allow_transfer_ticket_start = form.purchasing_available_start;
 			form.allow_transfer_ticket_stop = activityStart;
+			if (form.transfer_group_ids.length === 0 && form.allowed_group_ids.length > 0)
+				form.transfer_group_ids = [form.allowed_group_ids[0]];
 		}
 	}
 
@@ -633,13 +641,15 @@
 									new Date(form.allow_transfer_ticket_start)}
 								onchange={(value) => (form.allow_transfer_ticket_stop = value)} />
 						</div>
-						<label class="switch-field">
-							<Switch
-								value={form.allow_transfer_ticket_bypass_allowed_groups}
-								onchange={({ value }) =>
-									(form.allow_transfer_ticket_bypass_allowed_groups = value)} />
-							<span>{m.transfer_bypass()}</span>
-						</label>
+						<GroupTreePicker
+							title={m.transfer_groups()}
+							{groups}
+							selectedIds={form.transfer_group_ids}
+							inheritDescendants
+							onchange={(ids) => {
+								form.transfer_group_ids = ids;
+							}} />
+						<p class="muted">{m.transfer_groups_descendants()}</p>
 					{/if}
 				</div>{/if}
 		</section>

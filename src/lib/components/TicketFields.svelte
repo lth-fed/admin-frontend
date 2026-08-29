@@ -19,6 +19,7 @@
 		invited = false,
 		capacityLabel,
 		capacityMin = 1,
+		minLabel,
 		singleGroup = false,
 		releaseStartLocked = false,
 		priceLocked = false,
@@ -36,6 +37,7 @@
 		invited?: boolean;
 		capacityLabel?: string;
 		capacityMin?: number;
+		minLabel?: string;
 		singleGroup?: boolean;
 		releaseStartLocked?: boolean;
 		priceLocked?: boolean;
@@ -69,6 +71,28 @@
 			errorEn={invalidField === m.name_en() || invalidField === m.ticket_name()}
 			onchange={(name) => update({ name })} />
 	{/if}
+	{#if capacityLabel}<label class:field-error={invalidField === capacityLabel} class="field">
+			<span>{capacityLabel}</span>
+			<input
+				type="number"
+				aria-invalid={invalidField === capacityLabel}
+				min={capacityMin}
+				max={2_147_483_646}
+				value={value.max_tickets}
+				oninput={(event) => update({ max_tickets: event.currentTarget.valueAsNumber })} />
+		</label>{/if}
+	{#if minLabel}
+		<label class:field-error={invalidField === minLabel} class="field">
+			<span>{minLabel}</span>
+			<input
+				type="number"
+				aria-invalid={invalidField === minLabel}
+				min={0}
+				max={value.max_tickets}
+				value={value.min_tickets}
+				oninput={(event) => update({ min_tickets: event.currentTarget.valueAsNumber })} />
+		</label>
+	{/if}
 	{#if showInvitedToggle && oninvitedchange}
 		<label class="switch-field" inert={priceLocked}>
 			<Switch value={invited} onchange={({ value }) => oninvitedchange(value)} />
@@ -82,18 +106,6 @@
 			error={invalidField === m.price()}
 			disabled={priceLocked}
 			onchange={(price) => update({ price: price ?? Number.NaN })} />
-	{/if}
-	{#if capacityLabel}
-		<label class:field-error={invalidField === capacityLabel} class="field">
-			<span>{capacityLabel}</span>
-			<input
-				type="number"
-				aria-invalid={invalidField === capacityLabel}
-				min={capacityMin}
-				max={2_147_483_646}
-				value={value.max_tickets}
-				oninput={(event) => update({ max_tickets: event.currentTarget.valueAsNumber })} />
-		</label>
 	{/if}
 	{#if showDates}
 		<div class="date-range">

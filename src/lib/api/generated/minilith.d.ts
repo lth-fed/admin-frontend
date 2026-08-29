@@ -4849,9 +4849,9 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * You must own the ticket, and can if `Kind.allow_transfer_ticket_bypass_allowed_groups ==
-		 *     false` only transfer it to other users who could buy this ticket. This must also be called
-		 *     between `Kind.allow_transfer_ticket_start` and `Kind.allow_transfer_ticket_stop`.
+		 * You must own the ticket. The recipient must belong to one of the kind's transfer groups or
+		 *     a descendant, and this must be called between `Kind.allow_transfer_ticket_start` and
+		 *     `Kind.allow_transfer_ticket_stop`.
 		 *     Check these values by fetching the data of the Kind using `/v0/tickets/ticket-kind/<uuid>`
 		 */
 		post: {
@@ -6143,7 +6143,6 @@ export interface components {
 		};
 		/** DeregisterRequest */
 		DeregisterRequest: {
-			/** Format: uuid */
 			device_id: string;
 		};
 		/** ExternalSaleCategory */
@@ -6277,7 +6276,8 @@ export interface components {
 			allow_transfer_ticket_start: string;
 			/** Format: date-time */
 			allow_transfer_ticket_stop: string;
-			allow_transfer_ticket_bypass_allowed_groups: boolean;
+			/** @description A recipient must belong to one of these groups or a descendant. */
+			transfer_group_ids: string[];
 			has_been_purchased: boolean;
 			has_been_released: boolean;
 			allowed_group_ids: string[];
@@ -6498,7 +6498,8 @@ export interface components {
 			allow_transfer_ticket_start: string;
 			/** Format: date-time */
 			allow_transfer_ticket_stop: string;
-			allow_transfer_ticket_bypass_allowed_groups: boolean;
+			/** @description Recipients may belong to any selected group or one of its descendants. */
+			transfer_group_ids: string[];
 			allowed_group_ids: string[];
 			addons: components['schemas']['AvailableAddon'][];
 		};
@@ -6534,7 +6535,6 @@ export interface components {
 		RegisterRequest: {
 			platform: components['schemas']['PushPlatform'];
 			push_token: string;
-			/** Format: uuid */
 			device_id: string;
 		};
 		/** ReportRequest */

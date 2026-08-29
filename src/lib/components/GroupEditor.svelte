@@ -32,7 +32,7 @@
 		PutNotification
 	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
-	import { groupTabIndex, groupTabUrl, isGroupTabNavigation } from '$lib/group-tabs';
+	import { groupTabIndex, groupTabUrl, isGroupTabNavigation, type GroupTab } from '$lib/group-tabs';
 	import { dateTime, localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
@@ -72,12 +72,12 @@
 	let deletingNotificationId = $state<string | null>(null);
 	let allowNavigation = $state(false);
 	let editorTab = $derived(groupTabIndex(page.url));
-	const editorTabs = [
-		m.group_details(),
-		m.scheduled_notifications(),
-		m.members(),
-		m.administrators()
-	];
+	const editorTabs = new Map<GroupTab, string>([
+		['details', m.group_details()],
+		['notifications', m.scheduled_notifications()],
+		['members', m.members()],
+		['administrators', m.administrators()]
+	]);
 	let form = $state<PutGroup>({
 		path: '',
 		name: { sv: '', en: '' },
@@ -105,10 +105,10 @@
 		if (!confirm(m.unsaved_changes())) cancel();
 	});
 
-	function changeEditorTab(index: number): void {
-		if (index === editorTab) return;
+	function changeEditorTab(tab: GroupTab): void {
+		if (tab === editorTab) return;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
-		void goto(groupTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+		void goto(groupTabUrl(page.url, tab), { keepFocus: true, noScroll: true });
 	}
 
 	$effect(() => {
@@ -433,7 +433,7 @@
 	{/if}
 	<form class="stack" novalidate onsubmit={submit}>
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
-		{#if directAdmin && editorTab === 0}
+		{#if directAdmin && editorTab === 'details'}
 			<section class="card card-pad">
 				<h2 class="section-title">{m.group_details()}</h2>
 				<div class="grid-2">
@@ -485,7 +485,7 @@
 				</details>
 			</section>
 		{/if}
-		{#if directAdmin && id && editorTab === 1}
+		{#if directAdmin && id && editorTab === 'notifications'}
 			<section class="card card-pad stack">
 				<div class="toolbar between">
 					<h2 class="section-title">{m.scheduled_notifications()}</h2>
@@ -557,7 +557,7 @@
 				{/if}
 			</section>
 		{/if}
-		{#if directAdmin && id && editorTab === 2}<section class="card card-pad grid-2">
+		{#if directAdmin && id && editorTab === 'members'}<section class="card card-pad grid-2">
 				<RelationList
 					title={m.joiner_groups()}
 					items={joiners}
@@ -616,7 +616,7 @@
 							refreshRelations
 						)} />
 			</section>{/if}
-		{#if id && (!directAdmin || editorTab === 3)}
+		{#if id && (!directAdmin || editorTab === 'administrators')}
 			<section class="card card-pad">
 				<UserList
 					title={m.administrators()}
@@ -628,7 +628,7 @@
 					onremove={removeAdministrator} />
 			</section>
 		{/if}
-		{#if directAdmin && editorTab === 0}<div class="editor-action-dock">
+		{#if directAdmin && editorTab === 'details'}<div class="editor-action-dock">
 				<button class="button-link" type="submit" disabled={saving}
 					>{saving ? m.saving() : m.save()}</button
 				><button

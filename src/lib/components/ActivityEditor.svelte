@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { Pathname } from '$app/types';
-	import { activityTabIndex, activityTabUrl, isActivityTabNavigation } from '$lib/activity-tabs';
+	import { activityTabIndex, activityTabUrl, isActivityTabNavigation, type ActivityTab } from '$lib/activity-tabs';
 	import {
 		addActivityVerifier,
 		deleteActivity,
@@ -45,6 +45,7 @@
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
+	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupIcon from '$lib/components/GroupIcon.svelte';
 	import GroupTreeExplorer from '$lib/components/GroupTreeExplorer.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
@@ -99,6 +100,13 @@
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
 	let sharedAddons = $state<PutTicketKind['addons']>([]);
+	let transferSettings = $state({
+		enabled: false,
+		start: '',
+		stop: '',
+		groupIds: [] as string[]
+	});
+	let savingTransferSettings = $state(false);
 	let notificationSaving = $state(false);
 	let deletingNotificationKey = $state<string | null>(null);
 	let notificationTarget = $state('$all');
@@ -114,12 +122,13 @@
 	let savedActivitySnapshot = $state('');
 	let savedNotificationSnapshot = $state('');
 	let allowNavigation = $state(false);
-	const editorTabs = [
-		m.creation_step_details(),
-		m.creation_step_logistics(),
-		m.creation_step_tickets(),
-		m.creation_step_notifications()
-	];
+	const editorTabs = new Map<ActivityTab, string>([
+		['details', m.creation_step_details()],
+		['logistics', m.creation_step_logistics()],
+		['tickets', m.creation_step_tickets()],
+		['sales', m.creation_step_sales()],
+		['notifications', m.creation_step_notifications()]
+	]);
 	let form = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
@@ -148,6 +157,20 @@
 			.filter((tk) => tk?.max_tickets !== 0 && tk !== undefined)
 			.map((tk) => tk!)
 	);
+	const transferSettingsMixed = $derived(
+		purchasableTickets.length > 1 &&
+			purchasableTickets.slice(1).some((kind) => {
+				const first = purchasableTickets[0];
+				return (
+					kind.allow_transfer_ticket_stop > kind.allow_transfer_ticket_start !==
+						first.allow_transfer_ticket_stop > first.allow_transfer_ticket_start ||
+					kind.allow_transfer_ticket_start !== first.allow_transfer_ticket_start ||
+					kind.allow_transfer_ticket_stop !== first.allow_transfer_ticket_stop ||
+					[...kind.transfer_group_ids].sort().join('|') !==
+						[...first.transfer_group_ids].sort().join('|')
+				);
+			})
+	);
 	const hasUnsavedChanges = $derived(
 		(savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot) ||
 			(savedNotificationSnapshot !== '' && serializeNotification() !== savedNotificationSnapshot)
@@ -167,10 +190,10 @@
 		void load();
 	});
 
-	function changeEditorTab(index: number): void {
-		if (index === editorTab) return;
+	function changeEditorTab(tab: ActivityTab): void {
+		if (tab === editorTab) return;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
-		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+		void goto(activityTabUrl(page.url, tab), { keepFocus: true, noScroll: true });
 	}
 
 	function serializeActivity(): string {
@@ -256,6 +279,17 @@
 						).flat()
 					: [];
 				detailedTicketKinds = kinds;
+				const firstPurchasable = kinds.find((kind) => kind.max_tickets !== 0);
+				if (firstPurchasable) {
+					transferSettings = {
+						enabled:
+							firstPurchasable.allow_transfer_ticket_stop >
+							firstPurchasable.allow_transfer_ticket_start,
+						start: firstPurchasable.allow_transfer_ticket_start,
+						stop: firstPurchasable.allow_transfer_ticket_stop,
+						groupIds: [...firstPurchasable.transfer_group_ids]
+					};
+				}
 				sharedAddons = sharedTicketAddons(kinds.map((kind) => kind.available_addons));
 				visibilityGroupIds = [...new Set(kinds.flatMap((kind) => kind.allowed_group_ids))];
 				scheduledNotifications = notificationsByKind.flatMap(({ kind, notifications }) =>
@@ -483,10 +517,39 @@
 			min_tickets: kind.min_tickets,
 			allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
 			allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-			allow_transfer_ticket_bypass_allowed_groups: kind.allow_transfer_ticket_bypass_allowed_groups,
+			transfer_group_ids: [...kind.transfer_group_ids],
 			allowed_group_ids: kind.allowed_group_ids,
 			addons
 		};
+	}
+
+	async function persistTransferSettings(): Promise<void> {
+		if (!canEdit || purchasableTickets.length === 0) return;
+		if (transferSettings.groupIds.length === 0) transferSettings.groupIds = [form.creator_id];
+		savingTransferSettings = true;
+		error = null;
+		try {
+			for (const kind of purchasableTickets) {
+				const stop = transferSettings.enabled ? transferSettings.stop : transferSettings.start;
+				await saveTicketKind(kind.ticket_kind_id, {
+					...ticketKindBody(kind),
+					allow_transfer_ticket_start: transferSettings.start,
+					allow_transfer_ticket_stop: stop,
+					transfer_group_ids: [...transferSettings.groupIds]
+				});
+				kind.allow_transfer_ticket_start = transferSettings.start;
+				kind.allow_transfer_ticket_stop = stop;
+				kind.transfer_group_ids = [...transferSettings.groupIds];
+			}
+			transferSettings.stop = transferSettings.enabled
+				? transferSettings.stop
+				: transferSettings.start;
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			savingTransferSettings = false;
+		}
 	}
 
 	async function persistSharedAddons(): Promise<void> {
@@ -525,8 +588,8 @@
 				validationIssue.field.includes(m.latitude()) ||
 				validationIssue.field.includes(m.longitude())
 			)
-				changeEditorTab(1);
-			else changeEditorTab(0);
+				changeEditorTab('logistics');
+			else changeEditorTab('details');
 			error = `${validationIssue.field}: ${validationIssue.message}`;
 			toasts.show('error', error);
 			return;
@@ -677,8 +740,7 @@
 								? release
 								: kind.allow_transfer_ticket_start,
 						allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-						allow_transfer_ticket_bypass_allowed_groups:
-							kind.allow_transfer_ticket_bypass_allowed_groups,
+						transfer_group_ids: [...kind.transfer_group_ids],
 						allowed_group_ids: [...kind.allowed_group_ids],
 						addons: copyTicketAddons(kind.available_addons)
 					});
@@ -764,7 +826,7 @@
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 		{#if !canEdit}<p class="info-banner" role="status">{m.activity_read_only()}</p>{/if}
 		<fieldset class="stack activity-editor-fields" disabled={!canEdit}>
-			{#if editorTab === 0}<ActivityDetailsFields
+			{#if editorTab === 'details'}<ActivityDetailsFields
 					value={form}
 					{groups}
 					{adminGroupIds}
@@ -782,7 +844,7 @@
 					onimagechange={(event) => void chooseImage(event)} />
 			{/if}
 
-			{#if editorTab === 1}<ActivityLocationFields
+			{#if editorTab === 'logistics'}<ActivityLocationFields
 					value={form.location}
 					{north}
 					{east}
@@ -864,7 +926,7 @@
 				</section>
 			{/if}
 
-			{#if editorTab === 2 && id}
+			{#if editorTab === 'tickets' && id}
 				<section class="card card-pad">
 					<div>
 						<h2 class="section-title">{m.tickets()}</h2>
@@ -916,6 +978,47 @@
 						disabledTitle={m.visibility_access_help()}
 						onchange={() => {}} />
 				</section>
+				{#if purchasableTickets.length > 0}<section
+						class="card card-pad stack"
+						class:opacity-60={transferSettingsMixed}>
+						<div>
+							<h2 class="section-title">{m.transfer_settings()}</h2>
+							<p class="muted">{m.transfer_groups_descendants()}</p>
+						</div>
+						<fieldset class="stack" disabled={!canEdit || transferSettingsMixed}>
+							<label class="switch-field">
+								<Switch
+									value={transferSettings.enabled}
+									onchange={({ value }) => (transferSettings.enabled = value)} />
+								<span>{m.allow_transfers()}</span>
+							</label>
+							{#if transferSettings.enabled}<div class="date-range">
+									<DateTimePicker
+										label={m.transfer_from()}
+										value={transferSettings.start}
+										onchange={(value) => (transferSettings.start = value)} />
+									<DateTimePicker
+										label={m.transfer_until()}
+										value={transferSettings.stop}
+										onchange={(value) => (transferSettings.stop = value)} />
+								</div>{/if}
+							<GroupTreePicker
+								title={m.transfer_groups()}
+								{groups}
+								selectedIds={transferSettings.groupIds}
+								inheritDescendants
+								onchange={(ids) => {
+									transferSettings.groupIds = ids;
+								}} />
+						</fieldset>
+						{#if canEdit}<button
+								class="button-link secondary"
+								type="button"
+								disabled={savingTransferSettings}
+								onclick={() => void persistTransferSettings()}>
+								{transferSettingsMixed ? m.sync_transfer_settings() : m.save_transfer_settings()}
+							</button>{/if}
+					</section>{/if}
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.advanced()}</h2>
 					<label class="switch-field">
@@ -938,7 +1041,7 @@
 				</section>
 			{/if}
 
-			{#if editorTab === 2 && id && canEdit}
+			{#if editorTab === 'sales' && id && canEdit}
 				<section class="card card-pad stack">
 					<p class="muted">{m.activity_verifiers_help()}</p>
 					<UserList
@@ -1066,7 +1169,7 @@
 				</section>
 			{/if}
 
-			{#if editorTab === 3 && id && canEdit}
+			{#if editorTab === 'notifications' && id && canEdit}
 				<section class="card card-pad stack">
 					<div>
 						<h2 class="section-title">{m.scheduled_notifications()}</h2>

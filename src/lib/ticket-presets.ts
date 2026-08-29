@@ -12,14 +12,41 @@ type PresetShape = Pick<
 
 export function createDietaryPreferencesAddon(existingAddons: TicketAddon[] = []): TicketAddon {
 	const existing = existingAddons.find(hasDietaryPreferencesName);
-	if (existing) return copyTicketAddon(existing);
+	if (existing?.options.length) return copyTicketAddon(existing);
+	const names = [
+		{ sv: 'Vegetarian', en: 'Vegetarian' },
+		{ sv: 'Vegan', en: 'Vegan' },
+		{ sv: 'Nötallergi', en: 'Nut allergy' },
+		{ sv: 'Glutenfri', en: 'Gluten-free' },
+		{ sv: 'Laktosfri', en: 'Lactose-free' },
+		{ sv: 'Maltosallergi', en: 'Maltose allergy' },
+		{ sv: 'Mjölkfri', en: 'Milk-free' },
+		{ sv: 'Äggallergi', en: 'Egg allergy' },
+		{ sv: 'Fläskfri', en: 'Pork-free' },
+		{ sv: 'Inget rött kött', en: 'No red meat' },
+		{ sv: 'Inga skaldjur', en: 'No shellfish' },
+		{ sv: 'Baljväxtsallergi', en: 'Legume allergy' },
+		{ sv: 'Svampfritt', en: 'Mushroom-free' },
+		{
+			sv: 'Svenskt & ekologiskt animaliskt / svenskt viltkött',
+			en: 'Swedish & organic animal products / Swedish game meat'
+		},
+		{ sv: 'Ingen preferens', en: 'No preference' }
+	];
 	return {
 		id: crypto.randomUUID(),
 		name: { sv: 'Matpreferens', en: 'Dietary preferences' },
-		multiple_alternatives: false,
+		multiple_alternatives: true,
 		has_text_field: true,
 		required: false,
-		options: []
+		options: names.map((name, idx) => ({
+			id: crypto.randomUUID(),
+			idx,
+			name,
+			price: 0,
+			bookkeeping_prices: [],
+			bookkeeping_price_categories: []
+		}))
 	};
 }
 
@@ -34,10 +61,10 @@ export function isDietaryPreferencesAddon(addon: TicketAddon): boolean {
 	return (
 		addon.name.sv === 'Matpreferens' &&
 		addon.name.en === 'Dietary preferences' &&
-		!addon.multiple_alternatives &&
+		addon.multiple_alternatives &&
 		addon.has_text_field &&
 		!addon.required &&
-		addon.options.length === 0
+		addon.options.length === 15
 	);
 }
 

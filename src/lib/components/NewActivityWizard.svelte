@@ -2,7 +2,12 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { activityTabIndex, activityTabUrl, isActivityTabNavigation } from '$lib/activity-tabs';
+	import {
+		type ActivityTab,
+		activityTabIndex,
+		activityTabUrl,
+		isActivityTabNavigation
+	} from '$lib/activity-tabs';
 	import {
 		getMe,
 		inviteActivityHost,
@@ -24,7 +29,6 @@
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
-	import NotificationFields from '$lib/components/NotificationFields.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
 	import { localize } from '$lib/i18n';
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
@@ -75,13 +79,13 @@
 	const initialTimes = initialActivityTimes();
 
 	const activityId = crypto.randomUUID();
-	const steps = [
-		m.creation_step_details(),
-		m.creation_step_logistics(),
-		m.creation_step_tickets(),
-		m.creation_step_notifications()
-	];
-	let step = $derived(activityTabIndex(page.url));
+	const steps = new Map<ActivityTab, string>([
+		['details', m.creation_step_details()],
+		['logistics', m.creation_step_logistics()],
+		['tickets', m.creation_step_tickets()]
+	]);
+	const stepIds = Array.from(steps.keys());
+	let step = $derived(activityTabIndex(page.url, stepIds));
 	let loading = $state(true);
 	let saving = $state(false);
 	let uploading = $state(false);
@@ -116,7 +120,7 @@
 		max_tickets: UNLIMITED_TICKETS,
 		host_ids: []
 	});
-	let tickets = $state<TicketDraft[]>([newTicketDraft()]);
+	let tickets = $state<TicketDraft[]>([]);
 	let openTicketEditors = $state<Record<string, boolean>>({});
 	const contactValue = $derived(activity.responsible_contact.replace(/^(mailto:|tel:)/, ''));
 	const wizardDirty = $derived(
@@ -137,10 +141,10 @@
 		void load();
 	});
 
-	function changeStep(index: number): void {
-		if (index === step) return;
+	function changeStep(tab: ActivityTab): void {
+		if (tab === step) return;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
-		void goto(activityTabUrl(page.url, index), { keepFocus: true, noScroll: true });
+		void goto(activityTabUrl(page.url, tab), { keepFocus: true, noScroll: true });
 	}
 
 	function newTicketDraft(existingAddons: PutTicketKind['addons'] = []): TicketDraft {
@@ -160,11 +164,11 @@
 				price: 0,
 				purchasing_available_start: release,
 				purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
-				max_tickets: 1,
+				max_tickets: 100,
 				min_tickets: 0,
 				allow_transfer_ticket_start: release,
 				allow_transfer_ticket_stop: activity.time_start,
-				allow_transfer_ticket_bypass_allowed_groups: false,
+				transfer_group_ids: [activity.creator_id],
 				allowed_group_ids: [],
 				addons: [createDietaryPreferencesAddon(existingAddons)]
 			}
@@ -194,9 +198,11 @@
 			visibilityGroupIds = defaultActivityVisibility(tree, activity.creator_id);
 			activity.responsible_name = me.name;
 			if (me.id.startsWith('email:')) activity.responsible_contact = `mailto:${me.id.slice(6)}`;
+			if (tickets.length === 0) tickets.push(newTicketDraft());
 			savedWizardSnapshot = serializeWizard();
 		} catch (cause) {
 			error = frontendError(cause);
+			if (tickets.length === 0) tickets.push(newTicketDraft());
 		} finally {
 			loading = false;
 		}
@@ -214,17 +220,17 @@
 		return false;
 	}
 
-	function validateStep(index: number): boolean {
+	function validateStep(tab: ActivityTab): boolean {
 		error = null;
 		invalidField = null;
 		invalidTicketId = null;
-		if (index === 0) {
+		if (tab === 'details') {
 			if (!activity.creator_id)
 				return showError(`${m.creator()}: ${m.required_fields()}`, m.creator());
 			if (new Date(activity.time_end) <= new Date(activity.time_start))
 				return showError(m.end_after_start(), m.end());
 		}
-		if (index === 1) {
+		if (tab === 'logistics') {
 			if ((north && !east) || (!north && east))
 				return showError(m.coordinates_together(), `${m.latitude()} / ${m.longitude()}`);
 			if (north && parseCoordinate(north, 'north') === null)
@@ -232,7 +238,7 @@
 			if (east && parseCoordinate(east, 'east') === null)
 				return showError(m.invalid_coordinates(), m.longitude());
 		}
-		if (index === 2) {
+		if (tab === 'tickets') {
 			if (!hasTickets && visibilityGroupIds.length === 0)
 				return showError(`${m.visibility_access()}: ${m.required_fields()}`);
 			for (const ticket of hasTickets ? tickets : []) {
@@ -253,13 +259,15 @@
 					ticket.body.allow_transfer_ticket_stop <= ticket.body.allow_transfer_ticket_start
 				)
 					return showError(m.ticket_dates_order(), m.transfer_until(), ticket.id);
+				if (ticket.transfersEnabled && ticket.body.transfer_group_ids.length === 0)
+					return showError(m.required_fields(), m.transfer_groups(), ticket.id);
 			}
 		}
 		return true;
 	}
 
 	function next(): void {
-		if (validateStep(step)) changeStep(Math.min(steps.length - 1, step + 1));
+		if (validateStep(step)) changeStep(stepIds[stepIds.indexOf(step) + 1] ?? 'tickets');
 	}
 
 	function updateContactKind(value: string | number): void {
@@ -272,8 +280,19 @@
 	}
 
 	function updateActivity(value: PutActivity): void {
-		if (value.creator_id !== activity.creator_id)
+		const previousCreator = activity.creator_id;
+		if (value.creator_id !== previousCreator) {
 			visibilityGroupIds = defaultActivityVisibility(groups, value.creator_id);
+			for (const ticket of tickets) {
+				if (
+					ticket.body.transfer_group_ids.length === 0 ||
+					(ticket.body.transfer_group_ids.length === 1 &&
+						ticket.body.transfer_group_ids[0] === previousCreator) ||
+					(ticket.body.transfer_group_ids.length === 1 && ticket.body.transfer_group_ids[0] === '')
+				)
+					ticket.body.transfer_group_ids = [value.creator_id];
+			}
+		}
 		activity = value;
 	}
 
@@ -316,6 +335,8 @@
 		if (preset === 'allocated') {
 			draft.paidPrice = draft.body.price;
 			draft.invited = draft.body.price === 0;
+			draft.body.min_tickets = 10;
+			draft.body.max_tickets = 10;
 		}
 		draft.dietary = ['free', 'simple', 'allocated'].includes(preset);
 		if (draft.dietary && draft.body.addons.length === 0)
@@ -346,6 +367,8 @@
 		if (enabled) {
 			draft.body.allow_transfer_ticket_start = draft.body.purchasing_available_start;
 			draft.body.allow_transfer_ticket_stop = activity.time_start;
+			if (draft.body.transfer_group_ids.length === 0)
+				draft.body.transfer_group_ids = [activity.creator_id];
 		}
 	}
 
@@ -393,26 +416,10 @@
 		}));
 	}
 
-	function addNotification(): void {
-		notifications = [
-			...notifications,
-			{
-				id: crypto.randomUUID(),
-				target: '$all',
-				kind: 'reminder',
-				body: {
-					title: { sv: '', en: '' },
-					content: { sv: '', en: '' },
-					send_at: new Date(Date.now() + 86_400_000).toISOString()
-				}
-			}
-		];
-	}
-
 	async function submit(): Promise<void> {
 		for (let index = 0; index <= 2; index += 1) {
-			if (validateStep(index)) continue;
-			changeStep(index);
+			if (validateStep(stepIds[index])) continue;
+			changeStep(stepIds[index]);
 			return;
 		}
 		if (
@@ -457,6 +464,7 @@
 					max_tickets: 0,
 					min_tickets: 0,
 					allowed_group_ids: [groupId],
+					transfer_group_ids: [groupId],
 					addons: []
 				};
 				await saveTicketKind(visibility.id, visibility.body);
@@ -511,7 +519,7 @@
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 {#if loading}<div class="loader"></div>{:else}
 	<form onsubmit={(event) => event.preventDefault()}>
-		{#if step === 0}
+		{#if step === 'details'}
 			<ActivityDetailsFields
 				value={activity}
 				{groups}
@@ -526,7 +534,7 @@
 				oncontactkindchange={updateContactKind}
 				oncontactvaluechange={updateContactValue}
 				onimagechange={(event) => void chooseImage(event)} />
-		{:else if step === 1}
+		{:else if step === 'logistics'}
 			<div class="stack">
 				<ActivityLocationFields
 					value={activity.location}
@@ -550,7 +558,7 @@
 						}} />
 				</section>
 			</div>
-		{:else if step === 2}
+		{:else if step === 'tickets'}
 			<section class="card card-pad stack">
 				<div>
 					<h2 class="section-title">{m.creation_step_tickets()}</h2>
@@ -627,9 +635,27 @@
 										!(ticket.preset === 'allocated' && ticket.invited)}
 									showInvitedToggle={ticket.preset === 'allocated'}
 									invited={ticket.invited}
-									capacityLabel={ticket.preset === 'allocated' ? undefined : m.capacity()}
+									capacityLabel={m.capacity()}
+									capacityMin={ticket.body.min_tickets}
+									minLabel={ticket.preset === 'allocated' ? m.minimum_tickets() : undefined}
 									oninvitedchange={(invited) => toggleInvited(index, invited)}
 									onchange={(value) => updateTicket(index, value)} />
+								{#if ['free', 'simple', 'allocated'].includes(ticket.preset)}<label
+										class="switch-field"
+										><Switch
+											value={hasDietaryPreferencesAddon(ticket.body.addons)}
+											onchange={({ value }) => toggleDietary(index, value)} /><span
+											>{m.include_dietary_preferences()}</span
+										></label
+									>{/if}
+								{#if ['simple', 'allocated', 'advanced'].includes(ticket.preset)}
+									<AddonEditor
+										addons={ticket.body.addons}
+										reusableAddons={reusableAddonsFor(index)}
+										lockedAddonIds={lockedAddonIdsFor(index)}
+										onoverride={(addonId) => overrideSharedAddon(index, addonId)}
+										onchange={(addons) => (ticket.body.addons = addons)} />
+								{/if}
 								<div class="stack transfer-settings">
 									<label class="switch-field">
 										<Switch
@@ -650,31 +676,17 @@
 													ticket.body.allow_transfer_ticket_start}
 												onchange={(value) => (ticket.body.allow_transfer_ticket_stop = value)} />
 										</div>
-										<label class="switch-field">
-											<Switch
-												value={ticket.body.allow_transfer_ticket_bypass_allowed_groups}
-												onchange={({ value }) =>
-													(ticket.body.allow_transfer_ticket_bypass_allowed_groups = value)} />
-											<span>{m.transfer_bypass()}</span>
-										</label>
+										<GroupTreePicker
+											title={m.transfer_groups()}
+											{groups}
+											selectedIds={ticket.body.transfer_group_ids}
+											inheritDescendants
+											onchange={(ids) => {
+												ticket.body.transfer_group_ids = ids;
+											}} />
+										<p class="muted">{m.transfer_groups_descendants()}</p>
 									{/if}
 								</div>
-								{#if ['free', 'simple', 'allocated'].includes(ticket.preset)}<label
-										class="switch-field"
-										><Switch
-											value={hasDietaryPreferencesAddon(ticket.body.addons)}
-											onchange={({ value }) => toggleDietary(index, value)} /><span
-											>{m.include_dietary_preferences()}</span
-										></label
-									>{/if}
-								{#if ['simple', 'allocated', 'advanced'].includes(ticket.preset)}
-									<AddonEditor
-										addons={ticket.body.addons}
-										reusableAddons={reusableAddonsFor(index)}
-										lockedAddonIds={lockedAddonIdsFor(index)}
-										onoverride={(addonId) => overrideSharedAddon(index, addonId)}
-										onchange={(addons) => (ticket.body.addons = addons)} />
-								{/if}
 							</div>
 						</details>
 					{/each}
@@ -703,61 +715,18 @@
 					</div>
 				</details>
 			</section>
-		{:else}
-			<section class="card card-pad stack">
-				<div>
-					<h2 class="section-title">{m.scheduled_notifications()}</h2>
-					<p class="muted">{m.default_release_notifications()}</p>
-					<p class="muted">{m.notification_recipients_help()}</p>
-				</div>
-				{#each notifications as notification, index (notification.id)}
-					<article class="nested-card stack">
-						<div class="toolbar between">
-							<strong>{notification.kind || m.notification()}</strong><button
-								class="icon-button danger-button"
-								type="button"
-								aria-label={m.remove_notification()}
-								onclick={() =>
-									(notifications = notifications.filter(
-										(_, notificationIndex) => notificationIndex !== index
-									))}><Trash2 size={17} /></button>
-						</div>
-						<div class="grid-2">
-							<label class="field"
-								><span>{m.notification_target()}</span><Select
-									value={notification.target}
-									options={[
-										{ id: '$all', label: m.all_ticket_kinds() },
-										...tickets.map((ticket) => ({
-											id: ticket.id,
-											label: localize(ticket.body.name, '').trim() || m.empty_ticket_kind()
-										}))
-									]}
-									onchange={({ value }) => (notification.target = String(value))} /></label>
-						</div>
-						<NotificationFields
-							kind={notification.kind}
-							value={notification.body}
-							onkindchange={(kind) => (notification.kind = kind)}
-							onchange={(value) => (notification.body = value)} />
-					</article>
-				{/each}
-				{#if hasTickets}<button
-						class="button-link secondary"
-						type="button"
-						onclick={addNotification}><Plus size={16} /> {m.add_notification()}</button
-					>{/if}
-			</section>
 		{/if}
 
 		<div class="wizard-actions">
-			{#if step > 0}<button
+			{#if stepIds.indexOf(step) > 0}<button
 					class="button-link secondary"
 					type="button"
-					onclick={() => changeStep(step - 1)}>{m.back()}</button
+					onclick={() => changeStep(stepIds[stepIds.indexOf(step) - 1])}>{m.back()}</button
 				>{/if}
-			{#if step < steps.length - 1}<button class="button-link" type="button" onclick={next}
-					>{m.continue()}</button
+			{#if stepIds.indexOf(step) < stepIds.length - 1}<button
+					class="button-link"
+					type="button"
+					onclick={next}>{m.continue()}</button
 				>{:else}<button
 					class="button-link"
 					type="button"

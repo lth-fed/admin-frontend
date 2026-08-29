@@ -1,13 +1,18 @@
 export const groupTabIds = ['details', 'notifications', 'members', 'administrators'] as const;
+export type GroupTab = (typeof groupTabIds)[number];
 
-export function groupTabIndex(url: URL): number {
-	const index = groupTabIds.indexOf(url.searchParams.get('tab') as (typeof groupTabIds)[number]);
-	return index === -1 ? 0 : index;
+function isGroupTab(value: string | null): value is GroupTab {
+	return value !== null && groupTabIds.some((tab) => tab === value);
 }
 
-export function groupTabUrl(url: URL, index: number): URL {
+export function groupTabIndex(url: URL): GroupTab {
+	const requested = url.searchParams.get('tab');
+	return isGroupTab(requested) ? requested : groupTabIds[0];
+}
+
+export function groupTabUrl(url: URL, tab: GroupTab): URL {
 	const next = new URL(url);
-	next.searchParams.set('tab', groupTabIds[index] ?? groupTabIds[0]);
+	next.searchParams.set('tab', tab);
 	return next;
 }
 

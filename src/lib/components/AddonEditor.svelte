@@ -39,7 +39,7 @@
 	} = $props();
 
 	// it's fucked by the re-rendering of the item when it's name changes
-	let open = $state([true]);
+	let open = $state([false]);
 	let openOptions: boolean[][] = $state([]);
 	let reusableAddonId = $state('');
 

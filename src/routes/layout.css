@@ -126,7 +126,7 @@ a {
 .content {
 	margin-left: 230px;
 	min-height: 100vh;
-	padding: 38px clamp(22px, 4vw, 64px) 70px;
+	padding: 38px 40px 70px;
 }
 .content:has(.edit-page-header) {
 	max-width: 130ch;

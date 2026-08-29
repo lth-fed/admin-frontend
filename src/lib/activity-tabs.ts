@@ -1,15 +1,29 @@
-export const activityTabIds = ['details', 'logistics', 'tickets', 'notifications'] as const;
+export const activityTabIds = [
+	'details',
+	'logistics',
+	'tickets',
+	'sales',
+	'notifications'
+] as const;
+export type ActivityTab = (typeof activityTabIds)[number];
 
-export function activityTabIndex(url: URL): number {
-	const index = activityTabIds.indexOf(
-		url.searchParams.get('tab') as (typeof activityTabIds)[number]
-	);
-	return index === -1 ? 0 : index;
+function isActivityTab(value: string | null): value is ActivityTab {
+	return value !== null && activityTabIds.some((tab) => tab === value);
 }
 
-export function activityTabUrl(url: URL, index: number): URL {
+export function activityTabIndex(
+	url: URL,
+	allowed: readonly ActivityTab[] = activityTabIds
+): ActivityTab {
+	const requested = url.searchParams.get('tab');
+	return isActivityTab(requested) && allowed.includes(requested)
+		? requested
+		: (allowed[0] ?? 'details');
+}
+
+export function activityTabUrl(url: URL, tab: ActivityTab): URL {
 	const next = new URL(url);
-	next.searchParams.set('tab', activityTabIds[index] ?? activityTabIds[0]);
+	next.searchParams.set('tab', tab);
 	return next;
 }
 

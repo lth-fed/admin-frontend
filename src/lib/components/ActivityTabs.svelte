@@ -1,32 +1,36 @@
-<script lang="ts">
+<script lang="ts" generics="Tab extends string">
 	let {
 		labels,
 		active,
 		accessibleLabel,
-		furthest = labels.length - 1,
+		furthest = Array.from(labels.keys()).at(-1),
 		interactive = true,
 		onchange
 	}: {
-		labels: string[];
-		active: number;
+		labels: ReadonlyMap<Tab, string>;
+		active: Tab;
 		accessibleLabel: string;
-		furthest?: number;
+		furthest?: Tab;
 		interactive?: boolean;
-		onchange: (index: number) => void;
+		onchange: (tab: Tab) => void;
 	} = $props();
+
+	let tabs = $derived(Array.from(labels.keys()));
+	let activeIdx = $derived(tabs.indexOf(active));
+	let furthestIdx = $derived(furthest ? tabs.indexOf(furthest) : labels.size - 1);
 </script>
 
 <ol class="wizard-steps activity-editor-tabs" aria-label={accessibleLabel}>
-	{#each labels as label, index (label)}
+	{#each labels.entries() as [tab, label], idx (tab)}
 		<li
-			class:active={index === active}
-			class:complete={index < active}
-			aria-current={index === active ? 'step' : undefined}>
+			class:active={tab === active}
+			class:complete={idx < activeIdx}
+			aria-current={tab === active ? 'step' : undefined}>
 			<button
 				type="button"
-				disabled={!interactive || index > furthest}
-				onclick={() => onchange(index)}>
-				<span>{index + 1}</span>{label}
+				disabled={!interactive || idx > furthestIdx}
+				onclick={() => onchange(tab)}>
+				<span>{idx + 1}</span>{label}
 			</button>
 		</li>
 	{/each}
