@@ -3,6 +3,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { Combo } from '@svar-ui/svelte-core';
 	import type { Component, Snippet } from 'svelte';
+	import type { HTMLAttributes } from 'svelte/elements';
 
 	type UserOption = { id: string; label: string; user: AdminUser };
 	const UserCombo = Combo as Component<{
@@ -22,7 +23,8 @@
 		addText = m.add(),
 		removeText = m.remove(),
 		onadd,
-		onremove
+		onremove,
+		...rest
 	}: {
 		title: string;
 		count?: number;
@@ -35,7 +37,7 @@
 		removeText?: string;
 		onadd: (value: string) => Promise<void>;
 		onremove?: (value: string) => Promise<void>;
-	} = $props();
+	} & HTMLAttributes<EventTarget> = $props();
 	let value = $state('');
 	let emailDraft = $state('');
 	let customIdDraft = $state('');
@@ -95,7 +97,7 @@
 	}
 </script>
 
-<div>
+<div {...rest}>
 	<h3 class="section-title">
 		{title}
 		{#if count !== undefined}<span class="pill">{count}</span>{/if}

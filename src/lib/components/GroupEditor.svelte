@@ -566,6 +566,7 @@
 					onremove={(groupId) =>
 						action(() => removeGroupRelation(id!, 'joiner-groups', groupId), refreshRelations)} />
 				<UserList
+					class="row-span-2"
 					title={m.members()}
 					count={members.length}
 					items={members}
@@ -604,20 +605,9 @@
 						</ul>
 					{/if}
 				</div>
-				<RelationList
-					title={m.activity_admin_groups()}
-					items={activityAdmins}
-					options={tree}
-					inheritDescendants
-					onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
-					onremove={(groupId) =>
-						action(
-							() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
-							refreshRelations
-						)} />
 			</section>{/if}
 		{#if id && (!directAdmin || editorTab === 'administrators')}
-			<section class="card card-pad">
+			<section class="card card-pad grid-2">
 				<UserList
 					title={m.administrators()}
 					count={admins.length}
@@ -626,6 +616,18 @@
 					allowEmailInvite
 					onadd={addAdministrator}
 					onremove={removeAdministrator} />
+
+					<RelationList
+						title={m.activity_admin_groups()}
+						items={activityAdmins}
+						options={tree}
+						inheritDescendants
+						onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
+						onremove={(groupId) =>
+							action(
+								() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
+								refreshRelations
+							)} />
 			</section>
 		{/if}
 		{#if directAdmin && editorTab === 'details'}<div class="editor-action-dock">

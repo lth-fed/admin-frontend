@@ -3,11 +3,17 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { Pathname } from '$app/types';
-	import { activityTabIndex, activityTabUrl, isActivityTabNavigation, type ActivityTab } from '$lib/activity-tabs';
+	import {
+		activityTabIndex,
+		activityTabUrl,
+		isActivityTabNavigation,
+		type ActivityTab
+	} from '$lib/activity-tabs';
 	import {
 		addActivityVerifier,
 		deleteActivity,
 		deleteNotification,
+		deleteTicketKind,
 		downloadActivityReport,
 		getActivity,
 		getTicketKind,
@@ -64,6 +70,7 @@
 	import { toasts } from '$lib/toasts.svelte';
 	import { parseCoordinate } from '$lib/coordinates';
 	import { downloadTicketPurchasersCsv } from '$lib/purchase-csv';
+	import HelpTip from './HelpTip.svelte';
 
 	const I32_MAX = 2_147_483_647;
 	type ValidationIssue = { field: string; message: string };
@@ -99,6 +106,7 @@
 	let verifiedTicketHolders = $state(0);
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
+	let savingVisibility = $state(false);
 	let sharedAddons = $state<PutTicketKind['addons']>([]);
 	let transferSettings = $state({
 		enabled: false,
@@ -150,7 +158,20 @@
 		isNew ||
 			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
 	);
-	const canDelete = $derived(Boolean(id && canEdit && form.is_hidden && tickets.length === 0));
+	const visibilityTicketKinds = $derived(
+		detailedTicketKinds.filter(
+			(kind) => kind.ticket_kind_name.sv === 'null' && kind.ticket_kind_name.en === 'null'
+		)
+	);
+	const regularTicketKinds = $derived(
+		detailedTicketKinds.filter((kind) => !visibilityTicketKinds.includes(kind))
+	);
+	const ticketKindVisibilityGroupIds = $derived([
+		...new Set(regularTicketKinds.flatMap((kind) => kind.allowed_group_ids))
+	]);
+	const canDelete = $derived(
+		Boolean(id && canEdit && form.is_hidden && regularTicketKinds.length === 0)
+	);
 	const purchasableTickets: TicketKind[] = $derived(
 		tickets
 			.map((ticket) => detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id))
@@ -523,6 +544,56 @@
 		};
 	}
 
+	async function persistVisibilityGroups(selectedIds: string[]): Promise<void> {
+		if (!id || !canEdit || savingVisibility) return;
+		const lockedIds = new Set(ticketKindVisibilityGroupIds);
+		const editableIds = selectedIds.filter((groupId) => !lockedIds.has(groupId));
+		const primary = visibilityTicketKinds[0];
+		savingVisibility = true;
+		error = null;
+		try {
+			if (primary) {
+				await saveTicketKind(primary.ticket_kind_id, {
+					...ticketKindBody(primary),
+					allowed_group_ids: editableIds
+				});
+				primary.allowed_group_ids = editableIds;
+				for (const redundant of visibilityTicketKinds.slice(1)) {
+					if (redundant.allowed_group_ids.length === 0) continue;
+					await saveTicketKind(redundant.ticket_kind_id, {
+						...ticketKindBody(redundant),
+						allowed_group_ids: []
+					});
+					redundant.allowed_group_ids = [];
+				}
+			} else if (editableIds.length > 0) {
+				const release = new Date(Date.now() + 15 * 60 * 1_000).toISOString();
+				const ticketKindId = crypto.randomUUID();
+				await saveTicketKind(ticketKindId, {
+					activity_id: id,
+					name: { sv: 'null', en: 'null' },
+					price: 0,
+					purchasing_available_start: release,
+					purchasing_available_stop: release,
+					max_tickets: 0,
+					min_tickets: 0,
+					allow_transfer_ticket_start: release,
+					allow_transfer_ticket_stop: release,
+					transfer_group_ids: [],
+					allowed_group_ids: editableIds,
+					addons: []
+				});
+				detailedTicketKinds = [...detailedTicketKinds, await getTicketKind(ticketKindId)];
+			}
+			visibilityGroupIds = [...new Set([...ticketKindVisibilityGroupIds, ...editableIds])];
+			toasts.show('success', m.backend_success());
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			savingVisibility = false;
+		}
+	}
+
 	async function persistTransferSettings(): Promise<void> {
 		if (!canEdit || purchasableTickets.length === 0) return;
 		if (transferSettings.groupIds.length === 0) transferSettings.groupIds = [form.creator_id];
@@ -761,6 +832,12 @@
 		saving = true;
 		error = null;
 		try {
+			for (const kind of [...visibilityTicketKinds]) {
+				await deleteTicketKind(kind.ticket_kind_id);
+				detailedTicketKinds = detailedTicketKinds.filter(
+					(candidate) => candidate.ticket_kind_id !== kind.ticket_kind_id
+				);
+			}
 			await deleteActivity(id);
 			allowNavigation = true;
 			await goto(resolve('/'), { replaceState: true });
@@ -928,11 +1005,10 @@
 
 			{#if editorTab === 'tickets' && id}
 				<section class="card card-pad">
-					<div>
+					<div class="section-heading">
 						<h2 class="section-title">{m.tickets()}</h2>
-						<p class="muted">{m.activities_details()}</p>
 						{#if canEdit}
-							<a class="button-link my-4" href={resolve(`/tickets/new/?activity=${id}` as Pathname)}
+							<a class="button-link" href={resolve(`/tickets/new/?activity=${id}` as Pathname)}
 								><Plus size={17} /> {m.new_ticket()}</a>
 						{/if}
 					</div>
@@ -965,18 +1041,16 @@
 					help={m.shared_addons_panel_help()}
 					onchange={(addons) => (sharedAddons = addons)} />
 				<section class="card card-pad stack">
-					<div>
-						<h2 class="section-title">{m.visibility_access()}</h2>
-						<p class="muted mt-0">{m.visibility_access_help()}</p>
-					</div>
+					<p class="muted">{m.activities_details()}</p>
 					<GroupTreePicker
 						title={m.visibility_access()}
 						{groups}
 						selectedIds={visibilityGroupIds}
+						disabledIds={ticketKindVisibilityGroupIds}
 						inheritDescendants
-						disabled
-						disabledTitle={m.visibility_access_help()}
-						onchange={() => {}} />
+						disabled={savingVisibility}
+						disabledTitle={m.visibility_access_from_ticket_kind()}
+						onchange={persistVisibilityGroups} />
 				</section>
 				{#if purchasableTickets.length > 0}<section
 						class="card card-pad stack"
@@ -1021,10 +1095,12 @@
 					</section>{/if}
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.advanced()}</h2>
-					<label class="switch-field">
-						<Switch value={limitCapacity} onchange={({ value }) => toggleCapacityLimit(value)} />
-						<span>{m.limit_max_tickets()}</span>
-					</label>
+					<HelpTip text={m.activity_capacity_help()}>
+						<label class="switch-field">
+							<Switch value={limitCapacity} onchange={({ value }) => toggleCapacityLimit(value)} />
+							<span>{m.activity_capacity()}</span>
+						</label>
+					</HelpTip>
 					{#if limitCapacity}<label class="field"
 							><span>{m.activity_capacity()}</span><small>{m.activity_capacity_help()}</small><input
 								type="number"
@@ -1047,7 +1123,7 @@
 					<UserList
 						title={m.activity_verifiers()}
 						items={verifiers}
-						suggestions={userSuggestions}
+						suggestions={userSuggestions.filter((user) => !user.user_id.startsWith('email:'))}
 						addLabel={m.verifier_user_id()}
 						addText={m.grant_access()}
 						removeText={m.revoke_access()}
@@ -1117,7 +1193,7 @@
 								reportError = null;
 							}} />
 					</div>
-					<div class="toolbar between">
+					<div class="section-heading">
 						<h3 class="section-title">
 							{m.external_sales()} <span class="pill">{externalSales.length}</span>
 						</h3>
@@ -1201,9 +1277,7 @@
 						</ul>{/if}
 				</section>
 				<section class="card card-pad stack">
-					<div class="toolbar between">
-						<h2 class="section-title">{m.add_notification()}</h2>
-					</div>
+					<h2 class="section-title">{m.add_notification()}</h2>
 					<label class="field notification-target-field">
 						<span>{m.notification_target()}</span>
 						<Select
