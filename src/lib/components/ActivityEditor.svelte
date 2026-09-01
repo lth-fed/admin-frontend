@@ -1240,8 +1240,6 @@
 				<section class="card card-pad stack">
 					<div>
 						<h2 class="section-title">{m.scheduled_notifications()}</h2>
-						<p class="muted">{m.default_release_notifications()}</p>
-						<p class="muted">{m.notification_recipients_help()}</p>
 					</div>
 					{#if scheduledNotifications.length === 0}<p class="empty-state">
 							{m.empty()}

@@ -33,6 +33,7 @@ export async function saveLanguage(language: string): Promise<void> {
 }
 
 export async function listActivities(start?: Date, end?: Date): Promise<BriefActivity[]> {
+	if (!start && !end) return responseData(await api.GET('/activities'));
 	return responseData(
 		await api.GET('/activities', {
 			params: {

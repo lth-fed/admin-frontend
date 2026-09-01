@@ -652,6 +652,10 @@ a {
 	background: transparent;
 	cursor: pointer;
 }
+.icon-button:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
 .danger-button {
 	color: #e0aaa4;
 }

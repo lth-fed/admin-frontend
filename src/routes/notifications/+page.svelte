@@ -198,6 +198,7 @@
 	}
 
 	async function refreshNotifications(): Promise<void> {
+		const now = Date.now();
 		const [activityNotifications, groupNotifications] = await Promise.all([
 			Promise.all(
 				activities.map(async (activity) =>
@@ -211,12 +212,14 @@
 			),
 			Promise.all(
 				groups.map(async (group) =>
-					(await listGroupNotifications(group.id)).map((notification) => ({
-						notification,
-						targetType: 'group' as const,
-						targetId: group.id,
-						targetLabel: localize(group.name, group.path)
-					}))
+					(await listGroupNotifications(group.id))
+						.filter((notification) => new Date(notification.send_at).getTime() > now)
+						.map((notification) => ({
+							notification,
+							targetType: 'group' as const,
+							targetId: group.id,
+							targetLabel: localize(group.name, group.path)
+						}))
 				)
 			)
 		]);
@@ -381,12 +384,14 @@
 								type="button"
 								disabled={notification.sent}
 								aria-label={m.edit()}
+								title={notification.sent ? m.sent() : m.edit()}
 								onclick={() => void edit(item)}><Pencil size={16} /></button>
 							<button
 								class="icon-button danger-button"
 								type="button"
 								disabled={notification.sent || deletingId === notification.id}
 								aria-label={m.delete()}
+								title={notification.sent ? m.sent() : m.delete()}
 								onclick={() => void remove(item)}><Trash2 size={16} /></button>
 						</div>
 					</li>
