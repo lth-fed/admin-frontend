@@ -374,6 +374,25 @@ a {
 	color: #c7ccc9;
 	font-weight: 700;
 }
+.calendar-group-filter {
+	position: relative;
+	min-width: min(320px, 100%);
+}
+.calendar-group-filter > .advanced-content {
+	position: absolute;
+	right: 0;
+	z-index: 20;
+	width: min(420px, calc(100vw - 32px));
+	padding: 12px;
+	max-height: min(560px, 70vh);
+	overflow: auto;
+	border: 1px solid #303631;
+	border-radius: 11px;
+	background: #151816;
+	box-shadow: 0 18px 45px rgb(0 0 0 / 45%);
+	display: flex;
+	flex-direction: column;
+}
 .addon-panel {
 	margin-top: 0;
 	padding: 0;
@@ -949,6 +968,9 @@ a {
 	border: 1px solid #303531;
 	border-radius: 11px;
 	background: #151816;
+}
+.group-tree-picker[aria-invalid='true'] .host-tree {
+	border-color: #bf6b6b;
 }
 .group-admin-tree > .group-tree-explorer {
 	max-height: none;

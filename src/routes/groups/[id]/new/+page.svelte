@@ -2,7 +2,7 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { getMe, listGroupTree, saveGroup } from '$lib/api/admin';
+	import { addGroupRelation, getMe, listGroupTree, saveGroup } from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type { Group, PutGroup } from '$lib/api/types';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
@@ -72,6 +72,14 @@
 
 	function serializeGroup(value: PutGroup): string {
 		return JSON.stringify(value);
+	}
+
+	function rootGroup(): Group | undefined {
+		if (!parent) return undefined;
+		const parentPath = parent.path;
+		return tree
+			.filter((group) => parentPath === group.path || parentPath.startsWith(`${group.path}.`))
+			.sort((left, right) => left.path.split('.').length - right.path.split('.').length)[0];
 	}
 
 	function pathPart(name: string): string {
@@ -151,6 +159,8 @@
 		try {
 			const id = crypto.randomUUID();
 			await saveGroup(id, form);
+			const root = rootGroup();
+			if (root) await addGroupRelation(id, 'activity-admin-groups', root.id);
 			formSnapshot = serializeGroup(form);
 			allowNavigation = true;
 			await goto(resolve('/groups/[id]', { id }));

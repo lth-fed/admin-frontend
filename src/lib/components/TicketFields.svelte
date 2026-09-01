@@ -127,8 +127,10 @@
 
 <GroupTreePicker
 	title={m.allowed_groups()}
+	titleHelp={m.allowed_groups_help()}
 	{groups}
 	selectedIds={value.allowed_group_ids}
 	disabled={groupsLocked}
+	error={invalidField === m.allowed_groups()}
 	inheritDescendants={!singleGroup}
 	onchange={(ids) => update({ allowed_group_ids: singleGroup ? ids.slice(-1) : ids })} />

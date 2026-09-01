@@ -4,6 +4,17 @@ import type { Group } from '$lib/api/types';
 
 const TICKET_RELEASE_LEAD_MS = dev ? 0 : 10 * 60 * 1_000;
 
+function usesDebugTicketReleaseRules(): boolean {
+	if (dev) return true;
+	if (typeof window === 'undefined') return false;
+	const hostname = window.location.hostname;
+	return (
+		hostname === 'localhost' ||
+		hostname.endsWith('.localhost') ||
+		['127.0.0.1', '0.0.0.0', '::1', '[::1]'].includes(hostname)
+	);
+}
+
 export function defaultActivityVisibility(groups: Group[], creatorId: string): string[] {
 	const creator = groups.find((group) => group.id === creatorId);
 	if (!creator) return [];
@@ -21,5 +32,8 @@ export function defaultTicketRelease(): string {
 
 export function ticketReleaseIsTooSoon(value: string, now = Date.now()): boolean {
 	const release = new Date(value).getTime();
-	return !Number.isFinite(release) || release < now + TICKET_RELEASE_LEAD_MS;
+	return (
+		!Number.isFinite(release) ||
+		(!usesDebugTicketReleaseRules() && release < now + TICKET_RELEASE_LEAD_MS)
+	);
 }

@@ -37,6 +37,7 @@
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
+	import NotificationWarnings from '$lib/components/NotificationWarnings.svelte';
 	import RelationList from '$lib/components/RelationList.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { uploadImage } from '$lib/image';
@@ -173,7 +174,7 @@
 		return {
 			title: { sv: '', en: '' },
 			content: { sv: '', en: '' },
-			send_at: new Date(Date.now() + 86_400_000).toISOString()
+			send_at: new Date().toISOString()
 		};
 	}
 
@@ -194,6 +195,7 @@
 	}
 
 	function editNotification(notification: GroupNotification): void {
+		if (notification.sent) return;
 		if (!mayReplaceNotificationDraft()) return;
 		notificationId = notification.id;
 		notificationDraft = {
@@ -241,7 +243,7 @@
 	}
 
 	async function removeNotification(notification: GroupNotification): Promise<void> {
-		if (!id || !confirm(m.delete_notification_confirm())) return;
+		if (notification.sent || !id || !confirm(m.delete_notification_confirm())) return;
 		deletingNotificationId = notification.id;
 		error = null;
 		try {
@@ -503,13 +505,17 @@
 							<li>
 								<div class="list-main">
 									<strong>{localize(notification.title, m.notification())}</strong>
-									<span>{dateTime(notification.send_at)}</span>
+									<span
+										>{dateTime(notification.send_at)} · {notification.sent
+											? m.sent()
+											: m.not_sent()}</span>
 									<span>{localize(notification.content)}</span>
 								</div>
 								<div class="toolbar">
 									<button
 										class="icon-button"
 										type="button"
+										disabled={notification.sent}
 										aria-label={m.edit()}
 										onclick={() => editNotification(notification)}>
 										<Pencil size={16} />
@@ -517,7 +523,7 @@
 									<button
 										class="icon-button danger-button"
 										type="button"
-										disabled={deletingNotificationId === notification.id}
+										disabled={notification.sent || deletingNotificationId === notification.id}
 										aria-label={m.delete()}
 										onclick={() => void removeNotification(notification)}>
 										<Trash2 size={16} />
@@ -539,6 +545,7 @@
 								value={notificationDraft}
 								onchange={(value) => (notificationDraft = value)} />
 						</div>
+						<NotificationWarnings sendAt={notificationDraft.send_at} groupPath={form.path} />
 						<div class="toolbar">
 							<button
 								class="button-link"
@@ -571,7 +578,7 @@
 					count={members.length}
 					items={members}
 					suggestions={userSuggestions}
-					allowCustomId
+					allowLuId
 					onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
 					onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
 				<div>
@@ -617,17 +624,18 @@
 					onadd={addAdministrator}
 					onremove={removeAdministrator} />
 
-					<RelationList
-						title={m.activity_admin_groups()}
-						items={activityAdmins}
-						options={tree}
-						inheritDescendants
-						onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
-						onremove={(groupId) =>
-							action(
-								() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
-								refreshRelations
-							)} />
+				<RelationList
+					title={m.activity_admin_groups()}
+					titleHelp={m.activity_admin_groups_help()}
+					items={activityAdmins}
+					options={tree}
+					inheritDescendants
+					onadd={(groupId) => addRelation('activity-admin-groups', groupId)}
+					onremove={(groupId) =>
+						action(
+							() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
+							refreshRelations
+						)} />
 			</section>
 		{/if}
 		{#if directAdmin && editorTab === 'details'}<div class="editor-action-dock">

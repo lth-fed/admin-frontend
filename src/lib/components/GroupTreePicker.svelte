@@ -3,18 +3,22 @@
 	import GroupIcon from '$lib/components/GroupIcon.svelte';
 	import GroupTreeExplorer from '$lib/components/GroupTreeExplorer.svelte';
 	import { localize } from '$lib/i18n';
+	import HelpTip from './HelpTip.svelte';
 
 	let {
 		title,
+		titleHelp,
 		groups,
 		selectedIds,
 		disabled = false,
 		disabledIds = [],
 		disabledTitle,
+		error = false,
 		inheritDescendants = false,
 		onchange
 	}: {
 		title?: string;
+		titleHelp?: string;
 		groups: Group[];
 		selectedIds: string[];
 		disabled?: boolean;
@@ -22,6 +26,7 @@
 		disabledIds?: string[];
 		/** Native tooltip shown when the picker is disabled. */
 		disabledTitle?: string;
+		error?: boolean;
 		/** A selected group grants access to every group below it in the path tree. */
 		inheritDescendants?: boolean;
 		onchange: (ids: string[]) => void | Promise<void>;
@@ -71,10 +76,15 @@
 </script>
 
 <div>
-	{#if title}
+	{#if title && !titleHelp}
 		<h3 class="section-title">{title}</h3>
 	{/if}
-	<div class="group-tree-picker">
+	{#if title && titleHelp}
+		<HelpTip text={titleHelp}>
+			<h3 class="section-title">{title}</h3>
+		</HelpTip>
+	{/if}
+	<div class="group-tree-picker" aria-invalid={error}>
 		<GroupTreeExplorer {groups} revealIds={selectedIds}>
 			{#snippet children(row)}
 				{@const isInherited = inherited(row.group)}

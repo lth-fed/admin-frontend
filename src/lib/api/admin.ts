@@ -2,6 +2,7 @@ import * as m from '$lib/paraglide/messages';
 import { api, mutationData, responseData } from './client';
 import type {
 	Activity,
+	ActivityNotification,
 	AdminUser,
 	ActivityHostInvite,
 	ActivityTicketKind,
@@ -11,12 +12,12 @@ import type {
 	Me,
 	PurchasedTicket,
 	PutActivity,
+	PutActivityNotification,
 	PutGroup,
 	PutNotification,
 	PutTicketKind,
 	ReportRequest,
-	TicketKind,
-	TicketNotification
+	TicketKind
 } from './types';
 
 function mutation<T>(response: { data?: T; error?: unknown; response: Response }): T {
@@ -31,10 +32,15 @@ export async function saveLanguage(language: string): Promise<void> {
 	responseData(await api.PUT('/user/language', { body: language }));
 }
 
-export async function listActivities(start: Date, end: Date): Promise<BriefActivity[]> {
+export async function listActivities(start?: Date, end?: Date): Promise<BriefActivity[]> {
 	return responseData(
 		await api.GET('/activities', {
-			params: { query: { paging_start: start.toISOString(), paging_end: end.toISOString() } }
+			params: {
+				query: {
+					paging_start: start?.toISOString(),
+					paging_end: end?.toISOString()
+				}
+			}
 		})
 	);
 }
@@ -164,31 +170,33 @@ export async function listAddonNames(): Promise<PutTicketKind['name'][]> {
 	return responseData(await api.GET('/admin/addon-names'));
 }
 
-export async function listNotifications(ticketKindId: string): Promise<TicketNotification[]> {
+export async function listActivityNotifications(
+	activityId: string
+): Promise<ActivityNotification[]> {
 	return responseData(
-		await api.GET('/admin/ticket-kinds/{ticket_kind_id}/notifications', {
-			params: { path: { ticket_kind_id: ticketKindId } }
+		await api.GET('/admin/activities/{activity_id}/notifications', {
+			params: { path: { activity_id: activityId } }
 		})
 	);
 }
 
-export async function saveNotification(
-	ticketKindId: string,
-	kind: string,
-	body: PutNotification
-): Promise<TicketNotification> {
+export async function saveActivityNotification(
+	activityId: string,
+	id: string,
+	body: PutActivityNotification
+): Promise<ActivityNotification> {
 	return mutation(
-		await api.PUT('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
-			params: { path: { ticket_kind_id: ticketKindId, kind } },
+		await api.PUT('/admin/activities/{activity_id}/notifications/{id}', {
+			params: { path: { activity_id: activityId, id } },
 			body
 		})
 	);
 }
 
-export async function deleteNotification(ticketKindId: string, kind: string): Promise<void> {
+export async function deleteActivityNotification(activityId: string, id: string): Promise<void> {
 	mutation(
-		await api.DELETE('/admin/ticket-kinds/{ticket_kind_id}/notifications/{kind}', {
-			params: { path: { ticket_kind_id: ticketKindId, kind } }
+		await api.DELETE('/admin/activities/{activity_id}/notifications/{id}', {
+			params: { path: { activity_id: activityId, id } }
 		})
 	);
 }

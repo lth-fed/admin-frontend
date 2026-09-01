@@ -4,6 +4,7 @@
 
 	let {
 		title,
+		titleHelp,
 		items,
 		options,
 		inheritDescendants = false,
@@ -11,6 +12,7 @@
 		onremove
 	}: {
 		title: string;
+		titleHelp?: string;
 		items: Group[];
 		options: Group[];
 		inheritDescendants?: boolean;
@@ -26,6 +28,7 @@
 
 <GroupTreePicker
 	{title}
+	{titleHelp}
 	groups={options}
 	selectedIds={items.map((item) => item.id)}
 	{inheritDescendants}

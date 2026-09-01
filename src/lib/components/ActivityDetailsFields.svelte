@@ -40,6 +40,15 @@
 		oncontactvaluechange: (value: string) => void;
 		onimagechange: (event: Event) => void;
 	} = $props();
+
+	const creatorGroups = $derived(groups.filter((group) => adminGroupIds.includes(group.id)));
+	const creatorOptions = $derived([
+		...(creatorGroups.length !== 1 ? [{ id: '', label: m.select_creator() }] : []),
+		...creatorGroups.map((group) => ({
+			id: group.id,
+			label: localize(group.name, group.path)
+		}))
+	]);
 </script>
 
 <section class="card card-pad">
@@ -99,9 +108,8 @@
 			{:else}
 				<Select
 					value={value.creator_id}
-					options={groups
-						.filter((group) => adminGroupIds.includes(group.id))
-						.map((group) => ({ id: group.id, label: localize(group.name, group.path) }))}
+					options={creatorOptions}
+					disabled={creatorGroups.length <= 1}
 					onchange={({ value: creator_id }) =>
 						onchange({ ...value, creator_id: String(creator_id) })} />
 			{/if}

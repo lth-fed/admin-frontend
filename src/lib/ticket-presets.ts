@@ -28,8 +28,8 @@ export function createDietaryPreferencesAddon(existingAddons: TicketAddon[] = []
 		{ sv: 'Baljväxtsallergi', en: 'Legume allergy' },
 		{ sv: 'Svampfritt', en: 'Mushroom-free' },
 		{
-			sv: 'Svenskt & ekologiskt animaliskt / svenskt viltkött',
-			en: 'Swedish & organic animal products / Swedish game meat'
+			sv: 'Svenskt & ekologiskt animaliskt / svenskt viltkött, allars vego',
+			en: 'Swedish & organic animal products / Swedish game meat, otherwise vego'
 		},
 		{ sv: 'Ingen preferens', en: 'No preference' }
 	];

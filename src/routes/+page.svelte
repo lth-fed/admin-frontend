@@ -5,10 +5,12 @@
 		acceptActivityHostInvite,
 		declineActivityHostInvite,
 		listActivities,
-		listActivityHostInvites
+		listActivityHostInvites,
+		listGroupTree
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { ActivityHostInvite, BriefActivity } from '$lib/api/types';
+	import type { ActivityHostInvite, BriefActivity, Group } from '$lib/api/types';
+	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import { createCalendarWords, dateTime, isoWeekNumber, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -20,17 +22,18 @@
 	} from '@svar-ui/svelte-calendar';
 	import { Locale as CalendarLocale, Select } from '@svar-ui/svelte-core';
 	import { Check, ChevronLeft, ChevronRight, Plus, Users, X } from '@lucide/svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteDate, SvelteSet } from 'svelte/reactivity';
 
 	let activities = $state<BriefActivity[]>([]);
 	let hostInvites = $state<ActivityHostInvite[]>([]);
+	let groups = $state<Group[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let invitationError = $state<string | null>(null);
 	let organization = $state('');
 	let currentView = $state('week');
-	let currentDate = $state(new Date());
-	let visibleRange = $state({ start: new Date(), end: new Date() });
+	let currentDate = new SvelteDate();
+	let visibleRange = $state({ start: new SvelteDate(), end: new SvelteDate() });
 	let calendarApi: CalendarInstanceApi | null = null;
 	let calendarShell: HTMLElement;
 	const respondingInvites = new SvelteSet<string>();
@@ -68,23 +71,17 @@
 	];
 
 	$effect(() => {
-		currentView;
-		visibleRange;
+		void currentView;
+		void visibleRange;
 		queueMicrotask(enhanceMonthWeekHeaders);
 	});
 
-	const organizations = $derived(
-		[
-			...new Map(
-				activities.map((activity) => [activity.creator_path, activity.creator_name])
-			).entries()
-		]
-			.map(([path, name]) => ({ path, name: localize(name, path) }))
-			.sort((a, b) => a.name.localeCompare(b.name))
-	);
+	const selectedOrganization = $derived(groups.find((group) => group.id === organization));
 	const filtered = $derived(
 		activities
-			.filter((activity) => !organization || activity.creator_path === organization)
+			.filter(
+				(activity) => !selectedOrganization || activity.creator_path === selectedOrganization.path
+			)
 			.sort((a, b) => +new Date(a.time_start) - +new Date(b.time_start))
 	);
 	const events = $derived<CalendarEvent[]>(
@@ -106,10 +103,10 @@
 			return [{ id: activity.id, start, end, ...base }];
 
 		const segments: CalendarEvent[] = [];
-		const day = new Date(start);
+		const day = new SvelteDate(start);
 		day.setHours(0, 0, 0, 0);
 		while (day < end) {
-			const nextDay = new Date(day);
+			const nextDay = new SvelteDate(day);
 			nextDay.setDate(nextDay.getDate() + 1);
 			const segmentStart = new Date(Math.max(start.getTime(), day.getTime()));
 			const segmentEnd = new Date(Math.min(end.getTime(), nextDay.getTime() - 1));
@@ -136,12 +133,26 @@
 			start: event.start.toISOString(),
 			end: event.end.toISOString()
 		});
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- the route itself is resolved before adding its query string
 		void goto(`${resolve('/activities/new')}?${query}`);
 	}
 
 	$effect(() => {
 		void loadHostInvites();
+		void loadGroups();
 	});
+
+	async function loadGroups(): Promise<void> {
+		try {
+			groups = await listGroupTree();
+		} catch (cause) {
+			error = frontendError(cause);
+		}
+	}
+
+	function selectOrganization(ids: string[]): void {
+		organization = ids.find((id) => id !== organization) ?? ids[0] ?? '';
+	}
 
 	function inviteKey(invite: ActivityHostInvite): string {
 		return `${invite.activity_id}:${invite.group_id}`;
@@ -205,10 +216,10 @@
 			queueMicrotask(() => {
 				const state = api.getState();
 				currentView = state.currentView;
-				currentDate = new Date(state.currentDate);
+				currentDate.setTime(new Date(state.currentDate).getTime());
 				visibleRange = {
-					start: new Date(state.visibleDateRange.start),
-					end: new Date(state.visibleDateRange.end)
+					start: new SvelteDate(state.visibleDateRange.start),
+					end: new SvelteDate(state.visibleDateRange.end)
 				};
 				void load(visibleRange.start, visibleRange.end);
 			});
@@ -224,10 +235,10 @@
 		});
 		const state = api.getState();
 		currentView = state.currentView;
-		currentDate = new Date(state.currentDate);
+		currentDate.setTime(new Date(state.currentDate).getTime());
 		visibleRange = {
-			start: new Date(state.visibleDateRange.start),
-			end: new Date(state.visibleDateRange.end)
+			start: new SvelteDate(state.visibleDateRange.start),
+			end: new SvelteDate(state.visibleDateRange.end)
 		};
 		void load(visibleRange.start, visibleRange.end);
 	}
@@ -249,7 +260,7 @@
 		const headers = [...calendarShell.querySelectorAll<HTMLElement>('.wx-y-header-cell')];
 		const index = headers.indexOf(header);
 		if (index < 0) return;
-		const date = new Date(visibleRange.start);
+		const date = new SvelteDate(visibleRange.start);
 		date.setDate(date.getDate() + index * 7);
 		void calendarApi?.exec('navigate-to', { view: 'week', date });
 	}
@@ -371,16 +382,21 @@
 		<button class="icon-button" type="button" aria-label={m.next()} onclick={() => navigate('next')}
 			><ChevronRight size={21} /></button>
 	</div>
-	<div class="field" style="min-width: 240px">
-		<span>{m.filter_organization()}</span>
-		<Select
-			value={organization}
-			options={[
-				{ id: '', label: m.all_organizations() },
-				...organizations.map((item) => ({ id: item.path, label: item.name }))
-			]}
-			onchange={({ value }) => (organization = String(value))} />
-	</div>
+	<details class="advanced-panel calendar-group-filter">
+		<summary>
+			{m.filter_organization()}: {selectedOrganization
+				? localize(selectedOrganization.name, selectedOrganization.path)
+				: m.all_organizations()}
+		</summary>
+		<div class="stack advanced-content">
+			<button class="button-link secondary" type="button" onclick={() => (organization = '')}
+				>{m.all_organizations()}</button>
+			<GroupTreePicker
+				{groups}
+				selectedIds={organization ? [organization] : []}
+				onchange={selectOrganization} />
+		</div>
+	</details>
 </div>
 
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}

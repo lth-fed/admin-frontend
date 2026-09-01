@@ -64,7 +64,7 @@
 		price: 0,
 		purchasing_available_start: defaultTicketRelease(),
 		purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
-		max_tickets: 1,
+		max_tickets: 100,
 		min_tickets: 0,
 		allow_transfer_ticket_start: new Date().toISOString(),
 		allow_transfer_ticket_stop: new Date(Date.now() + 31_536_000_000).toISOString(),
@@ -305,6 +305,8 @@
 		)
 			return { field: m.available_from(), message: m.ticket_release_too_soon() };
 		const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+		if (body.allowed_group_ids.length === 0)
+			return { field: m.allowed_groups(), message: m.required_fields() };
 		if (!body.allowed_group_ids.every((groupId) => uuid.test(groupId)))
 			return { field: m.allowed_groups(), message: m.invalid_group_ids() };
 		if (
@@ -315,8 +317,6 @@
 			return { field: m.transfer_groups(), message: m.required_fields() };
 		if (preset === 'none' && body.allowed_group_ids.length !== 1)
 			return { field: m.allowed_groups(), message: m.preset_requires_one_group() };
-		if (preset === 'allocated' && body.allowed_group_ids.length === 0)
-			return { field: m.allowed_groups(), message: m.required_fields() };
 		if (!validAddons(addons)) return { field: m.addons(), message: m.ticket_addons_invalid() };
 		return null;
 	}
@@ -578,7 +578,6 @@
 				<Select
 					value={preset}
 					options={[
-						{ id: 'none', label: m.preset_none() },
 						{ id: 'free', label: m.preset_free() },
 						{ id: 'simple', label: m.preset_simple() },
 						{ id: 'allocated', label: m.preset_allocated() },

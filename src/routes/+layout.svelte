@@ -8,7 +8,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime';
 	import { Button, WillowDark } from '@svar-ui/svelte-core';
-	import { CalendarDays, LogOut, Menu, Plus, Users, X } from '@lucide/svelte';
+	import { Bell, CalendarDays, LogOut, Menu, Plus, Users, X } from '@lucide/svelte';
 	import './layout.css';
 
 	let { children } = $props();
@@ -148,6 +148,13 @@
 						onclick={() => (menuOpen = false)}>
 						<Users size={19} />
 						{m.nav_groups()}
+					</a>
+					<a
+						class:active={page.url.pathname.startsWith('/notifications')}
+						href={resolve('/notifications')}
+						onclick={() => (menuOpen = false)}>
+						<Bell size={19} />
+						{m.nav_notifications()}
 					</a>
 				</nav>
 				<div class="sidebar-footer">

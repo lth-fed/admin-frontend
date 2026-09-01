@@ -13,57 +13,21 @@
 		inviteActivityHost,
 		listGroupTree,
 		saveActivity,
-		saveNotification,
 		saveTicketKind
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { Group, PutActivity, PutNotification, PutTicketKind } from '$lib/api/types';
-	import {
-		defaultActivityVisibility,
-		defaultTicketRelease,
-		ticketReleaseIsTooSoon
-	} from '$lib/activity-form';
-	import AddonEditor from '$lib/components/AddonEditor.svelte';
+	import type { Group, PutActivity, PutTicketKind } from '$lib/api/types';
+	import { defaultActivityVisibility, defaultTicketRelease } from '$lib/activity-form';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
-	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
-	import TicketFields from '$lib/components/TicketFields.svelte';
-	import { localize } from '$lib/i18n';
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
-	import {
-		applyTicketPreset,
-		createDietaryPreferencesAddon,
-		hasDietaryPreferencesAddon,
-		setDietaryPreferencesAddon,
-		ticketAddonDataKey,
-		type TicketPresetId,
-		UNLIMITED_TICKETS
-	} from '$lib/ticket-presets';
+	import { UNLIMITED_TICKETS } from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
-	import { applySharedAddonChanges, sharedTicketAddons } from '$lib/shared-addons';
-	import { ArrowLeft, Plus, Trash2 } from '@lucide/svelte';
-	import { Select, Switch } from '@svar-ui/svelte-core';
+	import { ArrowLeft } from '@lucide/svelte';
 	import { parseCoordinate } from '$lib/coordinates';
-
-	type TicketDraft = {
-		id: string;
-		preset: TicketPresetId;
-		dietary: boolean;
-		invited: boolean;
-		paidPrice: number;
-		transfersEnabled: boolean;
-		overriddenAddonIds: string[];
-		body: PutTicketKind;
-	};
-	type NotificationDraft = {
-		id: string;
-		target: string;
-		kind: string;
-		body: PutNotification;
-	};
 
 	function initialActivityTimes(): { start: string; end: string } {
 		const fallbackStart = new Date(Date.now() + 86_400_000);
@@ -81,8 +45,7 @@
 	const activityId = crypto.randomUUID();
 	const steps = new Map<ActivityTab, string>([
 		['details', m.creation_step_details()],
-		['logistics', m.creation_step_logistics()],
-		['tickets', m.creation_step_tickets()]
+		['logistics', m.creation_step_logistics()]
 	]);
 	const stepIds = Array.from(steps.keys());
 	let step = $derived(activityTabIndex(page.url, stepIds));
@@ -91,7 +54,6 @@
 	let uploading = $state(false);
 	let error = $state<string | null>(null);
 	let invalidField = $state<string | null>(null);
-	let invalidTicketId = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
 	let imageUrl = $state('');
@@ -99,10 +61,6 @@
 	let north = $state('');
 	let east = $state('');
 	let organizerIds = $state<string[]>([]);
-	let visibilityGroupIds = $state<string[]>([]);
-	let hasTickets = $state(true);
-	let limitCapacity = $state(false);
-	let notifications = $state<NotificationDraft[]>([]);
 	let savedWizardSnapshot = $state('');
 	let allowNavigation = $state(false);
 	let activity = $state<PutActivity>({
@@ -120,8 +78,6 @@
 		max_tickets: UNLIMITED_TICKETS,
 		host_ids: []
 	});
-	let tickets = $state<TicketDraft[]>([]);
-	let openTicketEditors = $state<Record<string, boolean>>({});
 	const contactValue = $derived(activity.responsible_contact.replace(/^(mailto:|tel:)/, ''));
 	const wizardDirty = $derived(
 		savedWizardSnapshot !== '' && serializeWizard() !== savedWizardSnapshot
@@ -147,31 +103,21 @@
 		void goto(activityTabUrl(page.url, tab), { keepFocus: true, noScroll: true });
 	}
 
-	function newTicketDraft(existingAddons: PutTicketKind['addons'] = []): TicketDraft {
-		const id = crypto.randomUUID();
+	function visibilityTicket(groupId: string): PutTicketKind {
 		const release = defaultTicketRelease();
 		return {
-			id,
-			preset: 'simple',
-			dietary: true,
-			invited: false,
-			paidPrice: 0,
-			transfersEnabled: true,
-			overriddenAddonIds: [],
-			body: {
-				activity_id: activityId,
-				name: { sv: '', en: '' },
-				price: 0,
-				purchasing_available_start: release,
-				purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
-				max_tickets: 100,
-				min_tickets: 0,
-				allow_transfer_ticket_start: release,
-				allow_transfer_ticket_stop: activity.time_start,
-				transfer_group_ids: [activity.creator_id],
-				allowed_group_ids: [],
-				addons: [createDietaryPreferencesAddon(existingAddons)]
-			}
+			activity_id: activityId,
+			name: { sv: 'null', en: 'null' },
+			price: 0,
+			purchasing_available_start: release,
+			purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
+			max_tickets: 0,
+			min_tickets: 0,
+			allow_transfer_ticket_start: release,
+			allow_transfer_ticket_stop: activity.time_start,
+			transfer_group_ids: [groupId],
+			allowed_group_ids: [groupId],
+			addons: []
 		};
 	}
 
@@ -180,12 +126,7 @@
 			activity,
 			north,
 			east,
-			organizerIds,
-			visibilityGroupIds,
-			hasTickets,
-			limitCapacity,
-			tickets,
-			notifications
+			organizerIds
 		});
 	}
 
@@ -194,28 +135,20 @@
 			const [me, tree] = await Promise.all([getMe(), listGroupTree()]);
 			groups = tree;
 			adminGroupIds = me.admin_group_ids;
-			activity.creator_id = me.admin_group_ids[0] ?? '';
-			visibilityGroupIds = defaultActivityVisibility(tree, activity.creator_id);
+			if (adminGroupIds.length === 1) activity.creator_id = adminGroupIds[0];
 			activity.responsible_name = me.name;
 			if (me.id.startsWith('email:')) activity.responsible_contact = `mailto:${me.id.slice(6)}`;
-			if (tickets.length === 0) tickets.push(newTicketDraft());
 			savedWizardSnapshot = serializeWizard();
 		} catch (cause) {
 			error = frontendError(cause);
-			if (tickets.length === 0) tickets.push(newTicketDraft());
 		} finally {
 			loading = false;
 		}
 	}
 
-	function showError(
-		message: string,
-		field: string | null = null,
-		ticketId: string | null = null
-	): false {
+	function showError(message: string, field: string | null = null): false {
 		error = message;
 		invalidField = field;
-		invalidTicketId = ticketId;
 		toasts.show('error', message);
 		return false;
 	}
@@ -223,7 +156,6 @@
 	function validateStep(tab: ActivityTab): boolean {
 		error = null;
 		invalidField = null;
-		invalidTicketId = null;
 		if (tab === 'details') {
 			if (!activity.creator_id)
 				return showError(`${m.creator()}: ${m.required_fields()}`, m.creator());
@@ -238,36 +170,11 @@
 			if (east && parseCoordinate(east, 'east') === null)
 				return showError(m.invalid_coordinates(), m.longitude());
 		}
-		if (tab === 'tickets') {
-			if (!hasTickets && visibilityGroupIds.length === 0)
-				return showError(`${m.visibility_access()}: ${m.required_fields()}`);
-			for (const ticket of hasTickets ? tickets : []) {
-				if (!ticket.body.name.sv?.trim() || !ticket.body.name.en?.trim())
-					return showError(
-						`${m.ticket_name()}: ${m.required_fields()}`,
-						m.ticket_name(),
-						ticket.id
-					);
-				if (ticket.preset === 'allocated' && ticket.body.allowed_group_ids.length === 0)
-					return showError(`${m.allowed_groups()}: ${m.required_fields()}`);
-				if (ticket.body.purchasing_available_stop <= ticket.body.purchasing_available_start)
-					return showError(m.end_after_start(), m.available_until(), ticket.id);
-				if (ticketReleaseIsTooSoon(ticket.body.purchasing_available_start))
-					return showError(m.ticket_release_too_soon(), m.available_from(), ticket.id);
-				if (
-					ticket.transfersEnabled &&
-					ticket.body.allow_transfer_ticket_stop <= ticket.body.allow_transfer_ticket_start
-				)
-					return showError(m.ticket_dates_order(), m.transfer_until(), ticket.id);
-				if (ticket.transfersEnabled && ticket.body.transfer_group_ids.length === 0)
-					return showError(m.required_fields(), m.transfer_groups(), ticket.id);
-			}
-		}
 		return true;
 	}
 
 	function next(): void {
-		if (validateStep(step)) changeStep(stepIds[stepIds.indexOf(step) + 1] ?? 'tickets');
+		if (validateStep(step)) changeStep(stepIds[stepIds.indexOf(step) + 1] ?? 'logistics');
 	}
 
 	function updateContactKind(value: string | number): void {
@@ -280,33 +187,15 @@
 	}
 
 	function updateActivity(value: PutActivity): void {
-		const previousCreator = activity.creator_id;
-		if (value.creator_id !== previousCreator) {
-			visibilityGroupIds = defaultActivityVisibility(groups, value.creator_id);
-			for (const ticket of tickets) {
-				if (
-					ticket.body.transfer_group_ids.length === 0 ||
-					(ticket.body.transfer_group_ids.length === 1 &&
-						ticket.body.transfer_group_ids[0] === previousCreator) ||
-					(ticket.body.transfer_group_ids.length === 1 && ticket.body.transfer_group_ids[0] === '')
-				)
-					ticket.body.transfer_group_ids = [value.creator_id];
-			}
-		}
 		activity = value;
 	}
 
 	function updateStart(value: string): void {
-		const previousStart = activity.time_start;
 		const duration = Math.max(
 			3_600_000,
 			new Date(activity.time_end).getTime() - new Date(activity.time_start).getTime()
 		);
 		activity.time_start = value;
-		for (const ticket of tickets) {
-			if (ticket.body.allow_transfer_ticket_stop === previousStart)
-				ticket.body.allow_transfer_ticket_stop = value;
-		}
 		if (new Date(activity.time_end) <= new Date(value))
 			activity.time_end = new Date(new Date(value).getTime() + duration).toISOString();
 	}
@@ -326,113 +215,12 @@
 		}
 	}
 
-	function setPreset(index: number, value: string | number): void {
-		const preset = String(value) as TicketPresetId;
-		const draft = tickets[index];
-		const shape = applyTicketPreset(draft.body, preset);
-		draft.preset = preset;
-		draft.body = { ...draft.body, ...shape };
-		if (preset === 'allocated') {
-			draft.paidPrice = draft.body.price;
-			draft.invited = draft.body.price === 0;
-			draft.body.min_tickets = 10;
-			draft.body.max_tickets = 10;
-		}
-		draft.dietary = ['free', 'simple', 'allocated'].includes(preset);
-		if (draft.dietary && draft.body.addons.length === 0)
-			draft.body.addons = [createDietaryPreferencesAddon(reusableAddonsFor(index))];
-	}
-
-	function updateTicket(index: number, value: PutTicketKind): void {
-		const draft = tickets[index];
-		if (draft.body.allow_transfer_ticket_start === draft.body.purchasing_available_start)
-			value.allow_transfer_ticket_start = value.purchasing_available_start;
-		draft.body = value;
-	}
-
-	function toggleInvited(index: number, invited: boolean): void {
-		const draft = tickets[index];
-		draft.invited = invited;
-		if (invited) {
-			draft.paidPrice = draft.body.price;
-			draft.body.price = 0;
-		} else {
-			draft.body.price = Math.max(draft.paidPrice, 1);
-		}
-	}
-
-	function toggleTransfers(index: number, enabled: boolean): void {
-		const draft = tickets[index];
-		draft.transfersEnabled = enabled;
-		if (enabled) {
-			draft.body.allow_transfer_ticket_start = draft.body.purchasing_available_start;
-			draft.body.allow_transfer_ticket_stop = activity.time_start;
-			if (draft.body.transfer_group_ids.length === 0)
-				draft.body.transfer_group_ids = [activity.creator_id];
-		}
-	}
-
-	function toggleDietary(index: number, enabled: boolean): void {
-		const draft = tickets[index];
-		draft.dietary = enabled;
-		draft.body.addons = setDietaryPreferencesAddon(
-			draft.body.addons,
-			enabled,
-			reusableAddonsFor(index)
-		);
-	}
-
-	function reusableAddonsFor(ticketIndex: number): PutTicketKind['addons'] {
-		return tickets
-			.filter((_, index) => index !== ticketIndex)
-			.flatMap((ticket) => ticket.body.addons);
-	}
-
-	function lockedAddonIdsFor(ticketIndex: number): string[] {
-		const ticket = tickets[ticketIndex];
-		const reusable = reusableAddonsFor(ticketIndex);
-		return ticket.body.addons
-			.filter(
-				(addon) =>
-					!ticket.overriddenAddonIds.includes(addon.id) &&
-					reusable.some((candidate) => ticketAddonDataKey(candidate) === ticketAddonDataKey(addon))
-			)
-			.map((addon) => addon.id);
-	}
-
-	function overrideSharedAddon(ticketIndex: number, addonId: string): void {
-		if (!confirm(m.override_shared_addon_confirm())) return;
-		const ticket = tickets[ticketIndex];
-		ticket.overriddenAddonIds = [...ticket.overriddenAddonIds, addonId];
-	}
-
-	function updateSharedAddons(next: PutTicketKind['addons']): void {
-		const addonLists = $state.snapshot(tickets.map((ticket) => ticket.body.addons));
-		const previous = sharedTicketAddons(addonLists);
-		const updated = applySharedAddonChanges(addonLists, previous, $state.snapshot(next));
-		tickets = tickets.map((ticket, index) => ({
-			...ticket,
-			body: { ...ticket.body, addons: updated[index] }
-		}));
-	}
-
 	async function submit(): Promise<void> {
-		for (let index = 0; index <= 2; index += 1) {
+		for (let index = 0; index < stepIds.length; index += 1) {
 			if (validateStep(stepIds[index])) continue;
 			changeStep(stepIds[index]);
 			return;
 		}
-		if (
-			notifications.some(
-				(item) =>
-					!item.kind.trim() ||
-					!item.body.title.sv?.trim() ||
-					!item.body.title.en?.trim() ||
-					!item.body.content.sv?.trim() ||
-					!item.body.content.en?.trim()
-			)
-		)
-			return void showError(`${m.notification_kind()}: ${m.required_fields()}`);
 		saving = true;
 		error = null;
 		try {
@@ -453,43 +241,12 @@
 			});
 			await Promise.all(organizerIds.map((groupId) => inviteActivityHost(activityId, groupId)));
 
-			const createdTickets: TicketDraft[] = [];
-			for (const groupId of visibilityGroupIds) {
-				const visibility = newTicketDraft();
-				visibility.id = crypto.randomUUID();
-				visibility.preset = 'none';
-				visibility.body = {
-					...visibility.body,
-					name: { sv: 'null', en: 'null' },
-					max_tickets: 0,
-					min_tickets: 0,
-					allowed_group_ids: [groupId],
-					transfer_group_ids: [groupId],
-					addons: []
-				};
-				await saveTicketKind(visibility.id, visibility.body);
-			}
-			if (hasTickets) {
-				for (const ticket of tickets) {
-					await saveTicketKind(ticket.id, {
-						...ticket.body,
-						allow_transfer_ticket_stop: ticket.transfersEnabled
-							? ticket.body.allow_transfer_ticket_stop
-							: ticket.body.allow_transfer_ticket_start
-					});
-					createdTickets.push(ticket);
-				}
-			}
-			for (const notification of notifications) {
-				const targets =
-					notification.target === '$all'
-						? createdTickets
-						: createdTickets.filter((ticket) => ticket.id === notification.target);
-				for (const target of targets)
-					await saveNotification(target.id, notification.kind, notification.body);
-			}
+			for (const groupId of defaultActivityVisibility(groups, activity.creator_id))
+				await saveTicketKind(crypto.randomUUID(), visibilityTicket(groupId));
 			allowNavigation = true;
-			await goto(resolve('/activities/[id]', { id: activityId }), { replaceState: true });
+			await goto(resolve('/activities/[id]?tab=tickets', { id: activityId }), {
+				replaceState: true
+			});
 		} catch (cause) {
 			allowNavigation = false;
 			error = frontendError(cause);
@@ -557,166 +314,11 @@
 							organizerIds = ids;
 						}} />
 				</section>
+				<section class="card card-pad">
+					<p class="muted">{m.configure_tickets_after_creation()}</p>
+				</section>
 			</div>
-		{:else if step === 'tickets'}
-			<section class="card card-pad stack">
-				<div>
-					<h2 class="section-title">{m.creation_step_tickets()}</h2>
-					<p class="muted preserve-lines">{m.activities_details()}</p>
-				</div>
-				<label class="field"
-					><span>{m.ticket_choice()}</span><Select
-						value={hasTickets ? 'yes' : 'no'}
-						options={[
-							{ id: 'yes', label: m.ticket_choice_yes() },
-							{ id: 'no', label: m.ticket_choice_none() }
-						]}
-						onchange={({ value }) => (hasTickets = value === 'yes')} /></label>
-				<GroupTreePicker
-					title={m.visibility_access()}
-					{groups}
-					selectedIds={visibilityGroupIds}
-					inheritDescendants
-					onchange={(ids) => {
-						visibilityGroupIds = ids;
-					}} />
-				<p class="muted">{m.visibility_access_help()}</p>
-				{#if hasTickets}
-					<AddonEditor
-						addons={sharedTicketAddons(
-							$state.snapshot(tickets.map((ticket) => ticket.body.addons))
-						)}
-						allowCreate={false}
-						allowDuplicate={false}
-						help={m.shared_addons_panel_help()}
-						onchange={updateSharedAddons} />
-					<div class="toolbar between">
-						<h2 class="section-title">{m.ticket_drafts()}</h2>
-						<button
-							class="button-link secondary"
-							type="button"
-							onclick={() =>
-								(tickets = [
-									...tickets,
-									newTicketDraft(tickets.flatMap((ticket) => ticket.body.addons))
-								])}><Plus size={16} /> {m.add_ticket_kind()}</button>
-					</div>
-					{#each tickets as ticket, index (ticket.id)}
-						<details
-							class="advanced-panel"
-							ontoggle={(event) => (openTicketEditors[ticket.id] = event.newState === 'open')}
-							open={openTicketEditors[ticket.id] ?? index === 0}>
-							<summary>{localize(ticket.body.name, '').trim() || m.empty_ticket_kind()}</summary>
-							<div class="stack advanced-content">
-								<div class="toolbar between">
-									<Select
-										value={ticket.preset}
-										options={[
-											{ id: 'free', label: m.preset_free() },
-											{ id: 'simple', label: m.preset_simple() },
-											{ id: 'allocated', label: m.preset_allocated() },
-											{ id: 'advanced', label: m.preset_advanced() }
-										]}
-										onchange={({ value }) =>
-											setPreset(index, value)} />{#if tickets.length > 1}<button
-											class="icon-button danger-button"
-											type="button"
-											aria-label={m.delete()}
-											onclick={() =>
-												(tickets = tickets.filter((_, ticketIndex) => ticketIndex !== index))}
-											><Trash2 size={17} /></button
-										>{/if}
-								</div>
-								<TicketFields
-									value={ticket.body}
-									{groups}
-									invalidField={invalidTicketId === ticket.id ? invalidField : null}
-									showPrice={ticket.preset !== 'free' &&
-										!(ticket.preset === 'allocated' && ticket.invited)}
-									showInvitedToggle={ticket.preset === 'allocated'}
-									invited={ticket.invited}
-									capacityLabel={m.capacity()}
-									capacityMin={ticket.body.min_tickets}
-									minLabel={ticket.preset === 'allocated' ? m.minimum_tickets() : undefined}
-									oninvitedchange={(invited) => toggleInvited(index, invited)}
-									onchange={(value) => updateTicket(index, value)} />
-								{#if ['free', 'simple', 'allocated'].includes(ticket.preset)}<label
-										class="switch-field"
-										><Switch
-											value={hasDietaryPreferencesAddon(ticket.body.addons)}
-											onchange={({ value }) => toggleDietary(index, value)} /><span
-											>{m.include_dietary_preferences()}</span
-										></label
-									>{/if}
-								{#if ['simple', 'allocated', 'advanced'].includes(ticket.preset)}
-									<AddonEditor
-										addons={ticket.body.addons}
-										reusableAddons={reusableAddonsFor(index)}
-										lockedAddonIds={lockedAddonIdsFor(index)}
-										onoverride={(addonId) => overrideSharedAddon(index, addonId)}
-										onchange={(addons) => (ticket.body.addons = addons)} />
-								{/if}
-								<div class="stack transfer-settings">
-									<label class="switch-field">
-										<Switch
-											value={ticket.transfersEnabled}
-											onchange={({ value }) => toggleTransfers(index, value)} />
-										<span>{m.allow_transfers()}</span>
-									</label>
-									{#if ticket.transfersEnabled}
-										<div class="date-range">
-											<DateTimePicker
-												label={m.transfer_from()}
-												value={ticket.body.allow_transfer_ticket_start}
-												onchange={(value) => (ticket.body.allow_transfer_ticket_start = value)} />
-											<DateTimePicker
-												label={m.transfer_until()}
-												value={ticket.body.allow_transfer_ticket_stop}
-												error={ticket.body.allow_transfer_ticket_stop <=
-													ticket.body.allow_transfer_ticket_start}
-												onchange={(value) => (ticket.body.allow_transfer_ticket_stop = value)} />
-										</div>
-										<GroupTreePicker
-											title={m.transfer_groups()}
-											{groups}
-											selectedIds={ticket.body.transfer_group_ids}
-											inheritDescendants
-											onchange={(ids) => {
-												ticket.body.transfer_group_ids = ids;
-											}} />
-										<p class="muted">{m.transfer_groups_descendants()}</p>
-									{/if}
-								</div>
-							</div>
-						</details>
-					{/each}
-				{/if}
-				<details class="advanced-panel">
-					<summary>{m.advanced()}</summary>
-					<div class="stack advanced-content">
-						<label class="switch-field"
-							><Switch
-								value={limitCapacity}
-								onchange={({ value }) => {
-									limitCapacity = value;
-									activity.max_tickets = value ? 1 : UNLIMITED_TICKETS;
-								}} /><span>{m.limit_max_tickets()}</span></label
-						>{#if limitCapacity}<label class="field"
-								><span>{m.activity_capacity()}</span><input
-									type="number"
-									min="1"
-									bind:value={activity.max_tickets} /></label
-							>{/if}<label class="switch-field"
-							><Switch
-								value={activity.is_hidden_for_other_admins}
-								onchange={({ value }) => (activity.is_hidden_for_other_admins = value)} /><span
-								>{m.hide_other_admins()}</span
-							></label>
-					</div>
-				</details>
-			</section>
 		{/if}
-
 		<div class="wizard-actions">
 			{#if stepIds.indexOf(step) > 0}<button
 					class="button-link secondary"

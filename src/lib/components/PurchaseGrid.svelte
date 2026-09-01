@@ -356,7 +356,7 @@
 {:else}
 	<div class="purchase-grid">
 		<WillowDark>
-			<Grid data={rows} {columns} tree autoRowHeight select={false} />
+			<Grid data={rows} {columns} tree select={false} />
 		</WillowDark>
 	</div>
 {/if}

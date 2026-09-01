@@ -12,7 +12,7 @@
 	import {
 		addActivityVerifier,
 		deleteActivity,
-		deleteNotification,
+		deleteActivityNotification,
 		deleteTicketKind,
 		downloadActivityReport,
 		getActivity,
@@ -22,18 +22,20 @@
 		inviteActivityHost,
 		listActivityTicketKinds,
 		listGroupTree,
-		listNotifications,
+		listActivityNotifications,
 		listPendingActivityHosts,
 		listPurchasedTickets,
 		listActivityVerifiers,
 		removeActivityVerifier,
 		saveActivity,
-		saveNotification,
+		saveActivityNotification,
 		saveTicketKind
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type {
 		AdminUser,
+		ActivityNotification,
+		ActivityNotificationKind,
 		ActivityTicketKind,
 		ExternalSaleCategory,
 		Group,
@@ -42,8 +44,7 @@
 		PutTicketKind,
 		PurchasedTicket,
 		ReportRequest,
-		TicketKind,
-		TicketNotification
+		TicketKind
 	} from '$lib/api/types';
 	import { loadGroupUserOptions } from '$lib/group-users';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
@@ -57,6 +58,7 @@
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
 	import NotificationFields from '$lib/components/NotificationFields.svelte';
+	import NotificationWarnings from '$lib/components/NotificationWarnings.svelte';
 	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { copiedLocalizedTitle, dateTime, kronor, localize } from '$lib/i18n';
@@ -117,16 +119,23 @@
 	let savingTransferSettings = $state(false);
 	let notificationSaving = $state(false);
 	let deletingNotificationKey = $state<string | null>(null);
-	let notificationTarget = $state('$all');
-	let notificationKind = $state('reminder');
+	let notificationTarget = $state<ActivityNotificationKind>('buyers');
 	let notificationDraft = $state<PutNotification>({
 		title: { sv: '', en: '' },
 		content: { sv: '', en: '' },
-		send_at: new Date(Date.now() + 86_400_000).toISOString()
+		send_at: new Date().toISOString()
 	});
-	let scheduledNotifications = $state<
-		Array<TicketNotification & { ticketKindId: string; ticketName: string }>
-	>([]);
+	const hasDangerousVisibilityGroup = $derived(
+		detailedTicketKinds.some(
+			(kind) =>
+				kind.max_tickets === 0 &&
+				kind.allowed_group_ids.some((groupId) => {
+					const path = groups.find((group) => group.id === groupId)?.path;
+					return path !== undefined && path.split('.').length <= 2;
+				})
+		)
+	);
+	let scheduledNotifications = $state<ActivityNotification[]>([]);
 	let savedActivitySnapshot = $state('');
 	let savedNotificationSnapshot = $state('');
 	let allowNavigation = $state(false);
@@ -222,7 +231,18 @@
 	}
 
 	function serializeNotification(): string {
-		return JSON.stringify({ notificationTarget, notificationKind, notificationDraft });
+		return JSON.stringify({ notificationTarget, notificationDraft });
+	}
+
+	function notificationRecipientLabel(recipient: ActivityNotificationKind): string {
+		switch (recipient) {
+			case 'all':
+				return m.notification_recipient_all();
+			case 'buyers':
+				return m.notification_recipient_buyers();
+			case 'ticket_holders':
+				return m.notification_recipient_ticket_holders();
+		}
 	}
 
 	async function load(): Promise<void> {
@@ -286,14 +306,7 @@
 				east = activity.location.coordinate_wgs84?.east.toString() ?? '';
 				tickets = activityTickets;
 				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
-				const notificationsByKind = mayEdit
-					? await Promise.all(
-							kinds.map(async (kind) => ({
-								kind,
-								notifications: await listNotifications(kind.ticket_kind_id)
-							}))
-						)
-					: [];
+				const activityNotifications = mayEdit ? await listActivityNotifications(id) : [];
 				purchases = mayEdit
 					? (
 							await Promise.all(activityTickets.map((ticket) => listPurchasedTickets(ticket.id)))
@@ -313,13 +326,12 @@
 				}
 				sharedAddons = sharedTicketAddons(kinds.map((kind) => kind.available_addons));
 				visibilityGroupIds = [...new Set(kinds.flatMap((kind) => kind.allowed_group_ids))];
-				scheduledNotifications = notificationsByKind.flatMap(({ kind, notifications }) =>
-					notifications.map((notification) => ({
-						...notification,
-						ticketKindId: kind.ticket_kind_id,
-						ticketName: localize(kind.ticket_kind_name)
-					}))
-				);
+				scheduledNotifications = activityNotifications;
+				notificationTarget = kinds.some((kind) => kind.has_been_purchased)
+					? 'ticket_holders'
+					: kinds.some((kind) => kind.max_tickets > 0)
+						? 'buyers'
+						: 'all';
 				minimumCapacity = kinds.reduce(
 					(total, kind) => total + kind.reserved_or_purchased_tickets,
 					0
@@ -451,51 +463,28 @@
 	}
 
 	async function refreshNotifications(): Promise<void> {
-		const notificationsByKind = await Promise.all(
-			detailedTicketKinds.map(async (kind) => ({
-				kind,
-				notifications: await listNotifications(kind.ticket_kind_id)
-			}))
-		);
-		scheduledNotifications = notificationsByKind.flatMap(({ kind, notifications }) =>
-			notifications.map((notification) => ({
-				...notification,
-				ticketKindId: kind.ticket_kind_id,
-				ticketName: localize(kind.ticket_kind_name, '').trim() || m.empty_ticket_kind()
-			}))
-		);
+		if (id) scheduledNotifications = await listActivityNotifications(id);
 	}
 
 	async function createNotification(): Promise<void> {
 		if (!id || !canEdit || notificationSaving) return;
 		if (
-			!notificationKind.trim() ||
 			!notificationDraft.title.sv.trim() ||
 			!notificationDraft.title.en.trim() ||
 			!notificationDraft.content.sv.trim() ||
 			!notificationDraft.content.en.trim()
 		) {
-			error = `${m.notification_kind()}: ${m.required_fields()}`;
-			toasts.show('error', error);
-			return;
-		}
-		const targetIds =
-			notificationTarget === '$all'
-				? purchasableTickets.map((ticket) => ticket.ticket_kind_id)
-				: [notificationTarget];
-		if (targetIds.length === 0) {
-			error = `${m.notification_target()}: ${m.required_fields()}`;
+			error = m.required_fields();
 			toasts.show('error', error);
 			return;
 		}
 		notificationSaving = true;
 		error = null;
 		try {
-			await Promise.all(
-				targetIds.map((ticketKindId) =>
-					saveNotification(ticketKindId, notificationKind.trim(), notificationDraft)
-				)
-			);
+			await saveActivityNotification(id, crypto.randomUUID(), {
+				recipient: notificationTarget,
+				...notificationDraft
+			});
 			await refreshNotifications();
 			savedNotificationSnapshot = serializeNotification();
 			toasts.show('success', m.backend_success());
@@ -506,15 +495,14 @@
 		}
 	}
 
-	async function removeNotification(ticketKindId: string, kind: string): Promise<void> {
+	async function removeNotification(notificationId: string): Promise<void> {
 		if (!canEdit || !confirm(m.delete_notification_confirm())) return;
-		const key = `${ticketKindId}-${kind}`;
-		deletingNotificationKey = key;
+		deletingNotificationKey = notificationId;
 		error = null;
 		try {
-			await deleteNotification(ticketKindId, kind);
+			await deleteActivityNotification(id!, notificationId);
 			scheduledNotifications = scheduledNotifications.filter(
-				(notification) => notification.ticketKindId !== ticketKindId || notification.kind !== kind
+				(notification) => notification.id !== notificationId
 			);
 			toasts.show('success', m.backend_success());
 		} catch (cause) {
@@ -1033,13 +1021,15 @@
 								</li>{/each}
 						</ul>{/if}
 				</section>
-				<AddonEditor
-					addons={sharedAddons}
-					allowCreate={false}
-					allowDuplicate={false}
-					disabled={!canEdit}
-					help={m.shared_addons_panel_help()}
-					onchange={(addons) => (sharedAddons = addons)} />
+				{#if sharedAddons.length > 0}
+					<AddonEditor
+						addons={sharedAddons}
+						allowCreate={false}
+						allowDuplicate={false}
+						disabled={!canEdit}
+						help={m.shared_addons_panel_help()}
+						onchange={(addons) => (sharedAddons = addons)} />
+				{/if}
 				<section class="card card-pad stack">
 					<p class="muted">{m.activities_details()}</p>
 					<GroupTreePicker
@@ -1124,6 +1114,7 @@
 						title={m.activity_verifiers()}
 						items={verifiers}
 						suggestions={userSuggestions.filter((user) => !user.user_id.startsWith('email:'))}
+						allowLuId
 						addLabel={m.verifier_user_id()}
 						addText={m.grant_access()}
 						removeText={m.revoke_access()}
@@ -1255,22 +1246,20 @@
 					{#if scheduledNotifications.length === 0}<p class="empty-state">
 							{m.empty()}
 						</p>{:else}<ul class="list">
-							{#each scheduledNotifications as notification (`${notification.ticketKindId}-${notification.kind}`)}<li>
+							{#each scheduledNotifications as notification (notification.id)}<li>
 									<div class="list-main">
-										<strong>{localize(notification.title, notification.kind)}</strong><span
-											>{notification.ticketName} · {notification.kind} · {dateTime(
+										<strong>{localize(notification.title, m.notification())}</strong><span
+											>{notificationRecipientLabel(notification.recipient)} · {dateTime(
 												notification.send_at
-											)}</span
+											)}{notification.sent ? ` · ${m.sent()}` : ''}</span
 										><span>{localize(notification.content)}</span>
 									</div>
 									<button
 										class="icon-button danger-button"
 										type="button"
-										disabled={deletingNotificationKey ===
-											`${notification.ticketKindId}-${notification.kind}`}
+										disabled={notification.sent || deletingNotificationKey === notification.id}
 										aria-label={m.delete()}
-										onclick={() =>
-											void removeNotification(notification.ticketKindId, notification.kind)}>
+										onclick={() => void removeNotification(notification.id)}>
 										<Trash2 size={16} />
 									</button>
 								</li>{/each}
@@ -1279,30 +1268,36 @@
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.add_notification()}</h2>
 					<label class="field notification-target-field">
-						<span>{m.notification_target()}</span>
+						<span>{m.notification_recipient()}</span>
 						<Select
 							value={notificationTarget}
 							options={[
-								{ id: '$all', label: m.all_ticket_kinds() },
-								...purchasableTickets.map((ticket) => ({
-									id: ticket.ticket_kind_id,
-									label: localize(ticket.ticket_kind_name, '').trim() || m.empty_ticket_kind()
-								}))
+								{ id: 'all', label: m.notification_recipient_all() },
+								{ id: 'buyers', label: m.notification_recipient_buyers() },
+								{ id: 'ticket_holders', label: m.notification_recipient_ticket_holders() }
 							]}
-							onchange={({ value }) => (notificationTarget = String(value))} />
+							onchange={({ value }) =>
+								(notificationTarget = String(value) as ActivityNotificationKind)} />
 					</label>
 					<div class="grid-2">
 						<NotificationFields
-							kind={notificationKind}
 							value={notificationDraft}
-							onkindchange={(kind) => (notificationKind = kind)}
 							onchange={(value) => (notificationDraft = value)} />
 					</div>
+					{#if notificationTarget === 'buyers'}
+						<p class="warning-banner" role="note">
+							{m.activity_notification_recipients_warning()}
+						</p>
+					{/if}
+					<NotificationWarnings
+						sendAt={notificationDraft.send_at}
+						activityRecipient={notificationTarget}
+						dangerousActivityVisibility={hasDangerousVisibilityGroup} />
 					<div class="toolbar">
 						<button
 							class="button-link"
 							type="button"
-							disabled={notificationSaving || purchasableTickets.length === 0}
+							disabled={notificationSaving}
 							onclick={() => void createNotification()}>
 							<Plus size={16} />
 							{notificationSaving ? m.saving() : m.save_notification()}
