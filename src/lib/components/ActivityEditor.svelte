@@ -66,7 +66,17 @@
 	import * as m from '$lib/paraglide/messages';
 	import { copyTicketAddons } from '$lib/ticket-presets';
 	import { applySharedAddonChanges, sharedTicketAddons } from '$lib/shared-addons';
-	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
+	import {
+		ArrowLeft,
+		Copy,
+		Download,
+		Eye,
+		EyeOff,
+		Pencil,
+		Plus,
+		Send,
+		Trash2
+	} from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
@@ -118,6 +128,7 @@
 	});
 	let savingTransferSettings = $state(false);
 	let notificationSaving = $state(false);
+	let editingNotificationId = $state<string | null>(null);
 	let deletingNotificationKey = $state<string | null>(null);
 	let notificationTarget = $state<ActivityNotificationKind>('buyers');
 	let notificationDraft = $state<PutNotification>({
@@ -467,7 +478,7 @@
 	}
 
 	async function createNotification(): Promise<void> {
-		if (!id || !canEdit || notificationSaving) return;
+		if (!id || !canEdit || notificationSaving || form.is_hidden) return;
 		if (
 			!notificationDraft.title.sv.trim() ||
 			!notificationDraft.title.en.trim() ||
@@ -481,11 +492,12 @@
 		notificationSaving = true;
 		error = null;
 		try {
-			await saveActivityNotification(id, crypto.randomUUID(), {
+			await saveActivityNotification(id, editingNotificationId ?? crypto.randomUUID(), {
 				recipient: notificationTarget,
 				...notificationDraft
 			});
 			await refreshNotifications();
+			editingNotificationId = null;
 			savedNotificationSnapshot = serializeNotification();
 			toasts.show('success', m.backend_success());
 		} catch (cause) {
@@ -493,6 +505,27 @@
 		} finally {
 			notificationSaving = false;
 		}
+	}
+
+	function editNotification(notification: ActivityNotification): void {
+		if (notification.sent || form.is_hidden) return;
+		editingNotificationId = notification.id;
+		notificationTarget = notification.recipient;
+		notificationDraft = {
+			title: { ...notification.title },
+			content: { ...notification.content },
+			send_at: notification.send_at
+		};
+	}
+
+	function cancelNotificationEdit(): void {
+		editingNotificationId = null;
+		notificationDraft = {
+			title: { sv: '', en: '' },
+			content: { sv: '', en: '' },
+			send_at: new Date().toISOString()
+		};
+		savedNotificationSnapshot = serializeNotification();
 	}
 
 	async function removeNotification(notificationId: string): Promise<void> {
@@ -1241,30 +1274,58 @@
 					<div>
 						<h2 class="section-title">{m.scheduled_notifications()}</h2>
 					</div>
-					{#if scheduledNotifications.length === 0}<p class="empty-state">
+					{#if scheduledNotifications.length === 0}
+						<p class="empty-state">
 							{m.empty()}
-						</p>{:else}<ul class="list">
-							{#each scheduledNotifications as notification (notification.id)}<li>
+						</p>
+					{:else}
+						<ul class="list">
+							{#each scheduledNotifications as notification (notification.id)}
+								<li>
 									<div class="list-main">
-										<strong>{localize(notification.title, m.notification())}</strong><span
-											>{notificationRecipientLabel(notification.recipient)} · {dateTime(
+										<strong>{localize(notification.title, m.notification())}</strong>
+										<span>
+											{notificationRecipientLabel(notification.recipient)} · {dateTime(
 												notification.send_at
-											)}{notification.sent ? ` · ${m.sent()}` : ''}</span
-										><span>{localize(notification.content)}</span>
+											)}{notification.sent ? ` · ${m.sent()}` : ''}
+										</span>
+										<span>{localize(notification.content)}</span>
 									</div>
-									<button
-										class="icon-button danger-button"
-										type="button"
-										disabled={notification.sent || deletingNotificationKey === notification.id}
-										aria-label={m.delete()}
-										onclick={() => void removeNotification(notification.id)}>
-										<Trash2 size={16} />
-									</button>
-								</li>{/each}
-						</ul>{/if}
+									<div class="toolbar">
+										<button
+											class="icon-button"
+											type="button"
+											disabled={notification.sent || form.is_hidden}
+											aria-label={m.edit()}
+											title={form.is_hidden
+												? m.activity_not_published_notification()
+												: notification.sent
+													? m.sent()
+													: m.edit()}
+											onclick={() => editNotification(notification)}>
+											<Pencil size={16} />
+										</button>
+										<button
+											class="icon-button danger-button"
+											type="button"
+											disabled={notification.sent || deletingNotificationKey === notification.id}
+											aria-label={m.delete()}
+											onclick={() => void removeNotification(notification.id)}>
+											<Trash2 size={16} />
+										</button>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</section>
 				<section class="card card-pad stack">
-					<h2 class="section-title">{m.add_notification()}</h2>
+					<h2 class="section-title">
+						{editingNotificationId ? m.edit_notification() : m.add_notification()}
+					</h2>
+					{#if form.is_hidden}
+						<p class="error-banner" role="alert">{m.activity_not_published_notification()}</p>
+					{/if}
 					<label class="field notification-target-field">
 						<span>{m.notification_recipient()}</span>
 						<Select
@@ -1280,6 +1341,7 @@
 					<div class="grid-2">
 						<NotificationFields
 							value={notificationDraft}
+							sender={localize(form.title)}
 							onchange={(value) => (notificationDraft = value)} />
 					</div>
 					{#if notificationTarget === 'buyers'}
@@ -1295,11 +1357,19 @@
 						<button
 							class="button-link"
 							type="button"
-							disabled={notificationSaving}
+							disabled={notificationSaving || form.is_hidden}
+							title={form.is_hidden ? m.activity_not_published_notification() : undefined}
 							onclick={() => void createNotification()}>
-							<Plus size={16} />
+							{#if editingNotificationId}<Pencil size={16} />{:else}<Plus size={16} />{/if}
 							{notificationSaving ? m.saving() : m.save_notification()}
 						</button>
+						{#if editingNotificationId}
+							<button
+								class="button-link secondary"
+								type="button"
+								disabled={notificationSaving}
+								onclick={cancelNotificationEdit}>{m.cancel()}</button>
+						{/if}
 					</div>
 				</section>
 			{/if}

@@ -30,7 +30,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let invitationError = $state<string | null>(null);
-	let organization = $state('');
+	let organizationIds = $state<string[]>([]);
 	let currentView = $state('week');
 	let currentDate = new SvelteDate();
 	let visibleRange = $state({ start: new SvelteDate(), end: new SvelteDate() });
@@ -76,11 +76,18 @@
 		queueMicrotask(enhanceMonthWeekHeaders);
 	});
 
-	const selectedOrganization = $derived(groups.find((group) => group.id === organization));
+	const selectedOrganizations = $derived(
+		groups.filter((group) => organizationIds.includes(group.id))
+	);
+	const selectedOrganizationPaths = $derived(
+		new Set(selectedOrganizations.map((group) => group.path))
+	);
 	const filtered = $derived(
 		activities
 			.filter(
-				(activity) => !selectedOrganization || activity.creator_path === selectedOrganization.path
+				(activity) =>
+					selectedOrganizationPaths.size === 0 ||
+					selectedOrganizationPaths.has(activity.creator_path)
 			)
 			.sort((a, b) => +new Date(a.time_start) - +new Date(b.time_start))
 	);
@@ -148,10 +155,6 @@
 		} catch (cause) {
 			error = frontendError(cause);
 		}
-	}
-
-	function selectOrganization(ids: string[]): void {
-		organization = ids.find((id) => id !== organization) ?? ids[0] ?? '';
 	}
 
 	function inviteKey(invite: ActivityHostInvite): string {
@@ -384,17 +387,21 @@
 	</div>
 	<details class="advanced-panel calendar-group-filter">
 		<summary>
-			{m.filter_organization()}: {selectedOrganization
-				? localize(selectedOrganization.name, selectedOrganization.path)
-				: m.all_organizations()}
+			{m.filter_organization()}: {selectedOrganizations.length === 0
+				? m.all_organizations()
+				: selectedOrganizations.length === 1
+					? localize(selectedOrganizations[0].name, selectedOrganizations[0].path)
+					: m.organizations_selected({ count: selectedOrganizations.length })}
 		</summary>
 		<div class="stack advanced-content">
-			<button class="button-link secondary" type="button" onclick={() => (organization = '')}
+			<button class="button-link secondary" type="button" onclick={() => (organizationIds = [])}
 				>{m.all_organizations()}</button>
 			<GroupTreePicker
 				{groups}
-				selectedIds={organization ? [organization] : []}
-				onchange={selectOrganization} />
+				selectedIds={organizationIds}
+				onchange={(ids) => {
+					organizationIds = ids;
+				}} />
 		</div>
 	</details>
 </div>

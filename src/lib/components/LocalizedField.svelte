@@ -14,6 +14,8 @@
 		errorEn = false,
 		placeholderSv,
 		placeholderEn,
+		prefix,
+		prefixLabel,
 		suggestions = [],
 		onchange
 	}: {
@@ -26,6 +28,8 @@
 		errorEn?: boolean;
 		placeholderSv?: string;
 		placeholderEn?: string;
+		prefix?: string;
+		prefixLabel?: string;
 		suggestions?: Localized[];
 		onchange: (value: Localized) => void;
 	} = $props();
@@ -65,13 +69,20 @@
 				value={value.sv ?? ''}
 				oninput={(event) => updateSwedish(event.currentTarget.value)}></textarea>
 		{:else}
-			<input
-				{required}
-				aria-invalid={errorSv}
-				list={suggestions.length ? swedishSuggestions : undefined}
-				placeholder={placeholderSv}
-				value={value.sv ?? ''}
-				oninput={(event) => updateSwedish(event.currentTarget.value)} />
+			<div class:invalid={errorSv} class:with-prefix={prefix} class="localized-input">
+				{#if prefix}
+					<span class="input-prefix" title={prefix}>
+						{#if prefixLabel}<span class="visually-hidden">{prefixLabel}: </span>{/if}{prefix}
+					</span>
+				{/if}
+				<input
+					{required}
+					aria-invalid={errorSv}
+					list={suggestions.length ? swedishSuggestions : undefined}
+					placeholder={placeholderSv}
+					value={value.sv ?? ''}
+					oninput={(event) => updateSwedish(event.currentTarget.value)} />
+			</div>
 		{/if}
 		{#if suggestions.length}<datalist id={swedishSuggestions}>
 				{#each suggestions as suggestion, index (index)}<option
@@ -96,14 +107,21 @@
 						value={value.en ?? ''}
 						oninput={(event) => updateEnglish(event.currentTarget.value)}></textarea>
 				{:else}
-					<input
-						{required}
-						aria-invalid={errorEn}
-						list={suggestions.length ? englishSuggestions : undefined}
-						aria-label={labelEn}
-						placeholder={placeholderEn}
-						value={value.en ?? ''}
-						oninput={(event) => updateEnglish(event.currentTarget.value)} />
+					<div class:invalid={errorEn} class:with-prefix={prefix} class="localized-input">
+						{#if prefix}
+							<span class="input-prefix" title={prefix}>
+								{#if prefixLabel}<span class="visually-hidden">{prefixLabel}: </span>{/if}{prefix}
+							</span>
+						{/if}
+						<input
+							{required}
+							aria-invalid={errorEn}
+							list={suggestions.length ? englishSuggestions : undefined}
+							aria-label={labelEn}
+							placeholder={placeholderEn}
+							value={value.en ?? ''}
+							oninput={(event) => updateEnglish(event.currentTarget.value)} />
+					</div>
 				{/if}
 				{#if suggestions.length}<datalist id={englishSuggestions}>
 						{#each suggestions as suggestion, index (index)}<option
@@ -114,3 +132,55 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	.localized-input.with-prefix {
+		display: flex;
+		align-items: stretch;
+		width: 100%;
+		border: 1px solid #3a403c;
+		border-radius: 4px;
+		background: #141715;
+	}
+
+	.localized-input.with-prefix:focus-within {
+		outline: 3px solid rgb(143 153 147 / 0.18);
+		border-color: #7f8983;
+	}
+
+	.localized-input.with-prefix.invalid {
+		border-color: #bf6b6b;
+	}
+
+	.localized-input.with-prefix.invalid:focus-within {
+		outline-color: rgb(191 107 107 / 0.24);
+	}
+
+	.localized-input.with-prefix input {
+		min-width: 0;
+		width: auto;
+		flex: 1;
+		border: 0 !important;
+		background: transparent;
+	}
+
+	.localized-input.with-prefix input:focus {
+		outline: none;
+	}
+
+	.input-prefix {
+		align-self: center;
+		max-width: 50%;
+		margin-block: 4px;
+		padding-inline: 10px;
+		overflow: hidden;
+		border-right: 1px solid #3a403c;
+		color: #969d98;
+		font-size: 0.82rem;
+		font-weight: 700;
+		line-height: 1.4;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		pointer-events: none;
+	}
+</style>

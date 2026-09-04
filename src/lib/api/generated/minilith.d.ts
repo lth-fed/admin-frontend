@@ -1375,7 +1375,11 @@ export interface paths {
 			cookie?: never;
 		};
 		get?: never;
-		/** Creates or replaces an unsent notification for an activity. */
+		/**
+		 * Creates or replaces an unsent notification for a published activity.
+		 * @description Hidden activities reject notification creation and editing. Sent
+		 *     notifications are immutable.
+		 */
 		put: {
 			parameters: {
 				query?: never;
@@ -6603,6 +6607,8 @@ export interface components {
 		Notification: {
 			/** Format: uuid */
 			id: string;
+			/** Format: uuid */
+			activity_id?: string;
 			sender: {
 				[key: string]: string;
 			};

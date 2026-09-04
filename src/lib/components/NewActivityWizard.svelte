@@ -8,16 +8,9 @@
 		activityTabUrl,
 		isActivityTabNavigation
 	} from '$lib/activity-tabs';
-	import {
-		getMe,
-		inviteActivityHost,
-		listGroupTree,
-		saveActivity,
-		saveTicketKind
-	} from '$lib/api/admin';
+	import { getMe, inviteActivityHost, listGroupTree, saveActivity } from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { Group, PutActivity, PutTicketKind } from '$lib/api/types';
-	import { defaultActivityVisibility, defaultTicketRelease } from '$lib/activity-form';
+	import type { Group, PutActivity } from '$lib/api/types';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
@@ -101,24 +94,6 @@
 		if (tab === step) return;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- helper keeps the current resolved route and changes only its tab query
 		void goto(activityTabUrl(page.url, tab), { keepFocus: true, noScroll: true });
-	}
-
-	function visibilityTicket(groupId: string): PutTicketKind {
-		const release = defaultTicketRelease();
-		return {
-			activity_id: activityId,
-			name: { sv: 'null', en: 'null' },
-			price: 0,
-			purchasing_available_start: release,
-			purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
-			max_tickets: 0,
-			min_tickets: 0,
-			allow_transfer_ticket_start: release,
-			allow_transfer_ticket_stop: activity.time_start,
-			transfer_group_ids: [groupId],
-			allowed_group_ids: [groupId],
-			addons: []
-		};
 	}
 
 	function serializeWizard(): string {
@@ -241,8 +216,6 @@
 			});
 			await Promise.all(organizerIds.map((groupId) => inviteActivityHost(activityId, groupId)));
 
-			for (const groupId of defaultActivityVisibility(groups, activity.creator_id))
-				await saveTicketKind(crypto.randomUUID(), visibilityTicket(groupId));
 			allowNavigation = true;
 			await goto(resolve('/activities/[id]?tab=tickets', { id: activityId }), {
 				replaceState: true

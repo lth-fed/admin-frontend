@@ -57,6 +57,7 @@
 	let recipient = $state<ActivityNotificationKind>('buyers');
 	let draft = $state<PutNotification>(emptyDraft());
 	let dangerousVisibilityByActivity = $state<Record<string, boolean>>({});
+	let publishedByActivity = $state<Record<string, boolean>>({});
 
 	const targetOptions = $derived(
 		targetType === 'activity'
@@ -90,6 +91,12 @@
 	);
 	const selectedActivityHasDangerousVisibility = $derived(
 		targetType === 'activity' && dangerousVisibilityByActivity[targetId] === true
+	);
+	const selectedActivityPublished = $derived(
+		targetType !== 'activity' || publishedByActivity[targetId] === true
+	);
+	const selectedSender = $derived(
+		targetOptions.find((option) => option.id === targetId)?.label ?? ''
 	);
 
 	$effect(() => {
@@ -134,6 +141,9 @@
 			groups = tree.filter((group) => adminIds.has(group.id));
 			const activityDetails = await Promise.all(
 				futureActivities.map(async (brief) => ({ brief, details: await getActivity(brief.id) }))
+			);
+			publishedByActivity = Object.fromEntries(
+				activityDetails.map(({ brief, details }) => [brief.id, !details.is_hidden])
 			);
 			activities = activityDetails
 				.filter(({ details }) => details.hosts.some((host) => adminIds.has(host.id)))
@@ -265,7 +275,7 @@
 	}
 
 	async function save(): Promise<void> {
-		if (!targetId || saving) return;
+		if (!targetId || saving || !selectedActivityPublished) return;
 		if (
 			!draft.title.sv?.trim() ||
 			!draft.title.en?.trim() ||
@@ -451,13 +461,20 @@
 					activityRecipient={targetType === 'activity' ? recipient : undefined}
 					dangerousActivityVisibility={selectedActivityHasDangerousVisibility} />
 				<div class="grid-2">
-					<NotificationFields value={draft} onchange={(value) => (draft = value)} />
+					<NotificationFields
+						value={draft}
+						sender={selectedSender}
+						onchange={(value) => (draft = value)} />
 				</div>
+				{#if !selectedActivityPublished}
+					<p class="error-banner" role="alert">{m.activity_not_published_notification()}</p>
+				{/if}
 				<div class="toolbar">
 					<button
 						class="button-link"
 						type="button"
-						disabled={saving || !targetId}
+						disabled={saving || !targetId || !selectedActivityPublished}
+						title={selectedActivityPublished ? undefined : m.activity_not_published_notification()}
 						onclick={() => void save()}>
 						{saving ? m.saving() : m.save_notification()}
 					</button>

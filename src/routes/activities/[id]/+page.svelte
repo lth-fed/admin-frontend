@@ -5,4 +5,6 @@
 </script>
 
 <svelte:head><title>{m.edit_activity()} · {m.app_name()}</title></svelte:head>
-<ActivityEditor id={page.params.id ?? null} />
+{#key page.params.id}
+	<ActivityEditor id={page.params.id ?? null} />
+{/key}

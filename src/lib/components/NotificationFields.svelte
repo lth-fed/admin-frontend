@@ -6,11 +6,13 @@
 
 	let {
 		kind,
+		sender,
 		value,
 		onkindchange,
 		onchange
 	}: {
 		kind?: string;
+		sender?: string;
 		value: PutNotification;
 		onkindchange?: (kind: string) => void;
 		onchange: (value: PutNotification) => void;
@@ -31,6 +33,8 @@
 	value={value.title}
 	labelSv={m.notification_title_sv()}
 	labelEn={m.notification_title_en()}
+	prefix={sender === undefined ? undefined : `${sender}:`}
+	prefixLabel={m.notification_sender()}
 	required
 	onchange={(title) => update({ title })} />
 <LocalizedField
