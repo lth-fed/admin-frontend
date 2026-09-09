@@ -79,15 +79,13 @@
 	const selectedOrganizations = $derived(
 		groups.filter((group) => organizationIds.includes(group.id))
 	);
-	const selectedOrganizationPaths = $derived(
-		new Set(selectedOrganizations.map((group) => group.path))
-	);
+	const selectedOrganizationIds = $derived(new Set(organizationIds));
 	const filtered = $derived(
 		activities
 			.filter(
 				(activity) =>
-					selectedOrganizationPaths.size === 0 ||
-					selectedOrganizationPaths.has(activity.creator_path)
+					selectedOrganizationIds.size === 0 ||
+					activity.host_ids.some((hostId) => selectedOrganizationIds.has(hostId))
 			)
 			.sort((a, b) => +new Date(a.time_start) - +new Date(b.time_start))
 	);

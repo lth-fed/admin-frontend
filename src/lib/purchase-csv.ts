@@ -53,7 +53,7 @@ export function downloadTicketPurchasersCsv(
 			return [
 				usersById.get(ticket.purchaser_id) ?? '',
 				ticket.purchaser_id,
-				usersById.get(ticket.owner_id) ?? '',
+				ticket.owner_name,
 				ticket.owner_id,
 				kind ? localize(kind.ticket_kind_name) : '',
 				sek(purchaseAmount(ticket, kind))

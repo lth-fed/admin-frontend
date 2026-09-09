@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AdminUser, Group, PurchasedTicket, TicketKind } from '$lib/api/types';
+	import type { Group, PurchasedTicket, TicketKind } from '$lib/api/types';
 	import PurchaseItemCell from '$lib/components/PurchaseItemCell.svelte';
 	import { kronor, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
@@ -11,18 +11,18 @@
 		purchases,
 		kinds,
 		groups = [],
-		users = [],
 		view = 'buyers'
 	}: {
 		purchases: PurchasedTicket[];
 		kinds: TicketKind[];
 		groups?: Group[];
-		users?: AdminUser[];
 		view?: 'buyers' | 'breakdown' | 'memberships';
 	} = $props();
 
-	const usersById = $derived(new Map(users.map((user) => [user.user_id, user.name])));
 	const kindsById = $derived(new Map(kinds.map((kind) => [kind.ticket_kind_id, kind])));
+	const ownerNamesById = $derived(
+		new Map(purchases.map((ticket) => [ticket.owner_id, ticket.owner_name]))
+	);
 	const columns = $derived<IColumnConfig[]>(
 		view === 'memberships'
 			? [
@@ -53,9 +53,12 @@
 			.replace(/[^a-z0-9]/g, '');
 	}
 
-	function userLabel(id: string): string {
-		const name = usersById.get(id);
+	function userLabel(id: string, name?: string): string {
 		return name ? `${name} · ${id}` : id;
+	}
+
+	function ownerLabel(id: string): string {
+		return userLabel(id, ownerNamesById.get(id));
 	}
 
 	function purchasePrice(ticket: PurchasedTicket): number {
@@ -108,10 +111,10 @@
 			byOwner.set(ticket.owner_id, [...(byOwner.get(ticket.owner_id) ?? []), ticket]);
 		}
 		return [...byOwner.entries()]
-			.sort(([left], [right]) => userLabel(left).localeCompare(userLabel(right)))
+			.sort(([left], [right]) => ownerLabel(left).localeCompare(ownerLabel(right)))
 			.map(([ownerId, tickets]) => ({
 				id: `buyer:${ownerId}`,
-				item: userLabel(ownerId),
+				item: ownerLabel(ownerId),
 				type: m.buyer(),
 				count: tickets.length,
 				total: kronor(tickets.reduce((sum, ticket) => sum + purchasePrice(ticket), 0)),
@@ -155,7 +158,7 @@
 			base.total += kind.price;
 			base.buyers.push({
 				id: `${base.id}:buyer:${ticket.id}`,
-				item: userLabel(ticket.owner_id),
+				item: ownerLabel(ticket.owner_id),
 				type: m.buyer(),
 				count: 1,
 				total: kronor(kind.price)
@@ -188,7 +191,7 @@
 					optionRow.total += option.price;
 					optionRow.buyers.push({
 						id: `${optionRow.id}:buyer:${ticket.id}`,
-						item: userLabel(ticket.owner_id),
+						item: ownerLabel(ticket.owner_id),
 						type: m.buyer(),
 						count: 1,
 						total: kronor(option.price)
@@ -208,7 +211,7 @@
 					};
 					textRow.buyers.push({
 						id: `${textRow.id}:buyer:${ticket.id}`,
-						item: userLabel(ticket.owner_id),
+						item: ownerLabel(ticket.owner_id),
 						type: m.buyer(),
 						count: 1,
 						total: kronor(0)
@@ -333,10 +336,10 @@
 					count: owners.size,
 					open: false,
 					data: [...owners.keys()]
-						.sort((left, right) => userLabel(left).localeCompare(userLabel(right)))
+						.sort((left, right) => ownerLabel(left).localeCompare(ownerLabel(right)))
 						.map((ownerId) => ({
 							id: `membership:${group.id}:owner:${ownerId}`,
-							item: userLabel(ownerId),
+							item: ownerLabel(ownerId),
 							type: m.buyer(),
 							count: 1
 						}))

@@ -29,6 +29,7 @@
 		name: { sv: '', en: '' },
 		description: { sv: '', en: '' },
 		limit_membership_visibility: false,
+		propagate_member_visibility_access: false,
 		logo_id: ''
 	});
 	const formDirty = $derived(formSnapshot !== '' && serializeGroup(form) !== formSnapshot);
@@ -59,6 +60,7 @@
 				name: { sv: '', en: '' },
 				description: { sv: '', en: '' },
 				limit_membership_visibility: false,
+				propagate_member_visibility_access: false,
 				logo_id: parent.logo_id
 			};
 			logoUrl = parent.logo_url;
@@ -256,6 +258,13 @@
 						<span>{m.limit_visibility()}</span>
 					</label>
 					<p class="muted">{m.limit_visibility_help()}</p>
+					<label class="switch-field">
+						<Switch
+							value={form.propagate_member_visibility_access}
+							onchange={({ value }) => (form.propagate_member_visibility_access = value)} />
+						<span>{m.propagate_member_visibility()}</span>
+					</label>
+					<p class="muted">{m.propagate_member_visibility_help()}</p>
 				</div>
 			</details>
 		</section>

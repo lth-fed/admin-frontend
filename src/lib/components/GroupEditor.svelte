@@ -31,7 +31,7 @@
 		PutGroup,
 		PutNotification
 	} from '$lib/api/types';
-	import { loadGroupUserOptions } from '$lib/group-users';
+	import { loadVisibleMemberOptions } from '$lib/visible-members';
 	import { groupTabIndex, groupTabUrl, isGroupTabNavigation, type GroupTab } from '$lib/group-tabs';
 	import { dateTime, localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
@@ -61,7 +61,6 @@
 	let originalPath = $state('');
 	let tree = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
-	let currentUserId = $state('');
 	let directAdmin = $state(false);
 	let savedFormSnapshot = $state('');
 	let notifications = $state<GroupNotification[]>([]);
@@ -84,6 +83,7 @@
 		name: { sv: '', en: '' },
 		description: { sv: '', en: '' },
 		limit_membership_visibility: false,
+		propagate_member_visibility_access: false,
 		logo_id: ''
 	});
 	const mainFormDirty = $derived(
@@ -124,12 +124,11 @@
 			const [loadedTree, me, loadedUsers] = await Promise.all([
 				listGroupTree(),
 				getMe(),
-				loadGroupUserOptions()
+				loadVisibleMemberOptions()
 			]);
 			tree = loadedTree;
 			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
-			currentUserId = me.id;
 			const group = tree.find((item) => item.id === id);
 			if (!group) throw new Error(m.not_found());
 			directAdmin = adminGroupIds.includes(group.id);
@@ -142,6 +141,7 @@
 				name: { ...group.name },
 				description: { ...group.description },
 				limit_membership_visibility: group.limit_membership_visibility,
+				propagate_member_visibility_access: group.propagate_member_visibility_access,
 				logo_id: group.logo_id
 			};
 			savedFormSnapshot = serializeGroup(form);
@@ -298,7 +298,8 @@
 		error = null;
 		try {
 			await addAdmin(id!, userId);
-			if (userId === currentUserId) {
+			const me = directAdmin ? null : await getMe();
+			if (me?.admin_group_ids.includes(id!)) {
 				allowNavigation = true;
 				window.location.reload();
 				return;
@@ -373,7 +374,7 @@
 				listMemberRequests(id),
 				listAdmins(id)
 			]);
-		userSuggestions = await loadGroupUserOptions(true);
+		userSuggestions = await loadVisibleMemberOptions(true);
 	}
 	async function refreshRelations(): Promise<void> {
 		if (id)
@@ -483,6 +484,13 @@
 							<span>{m.limit_visibility()}</span>
 						</label>
 						<p class="muted">{m.limit_visibility_help()}</p>
+						<label class="switch-field">
+							<Switch
+								value={form.propagate_member_visibility_access}
+								onchange={({ value }) => (form.propagate_member_visibility_access = value)} />
+							<span>{m.propagate_member_visibility()}</span>
+						</label>
+						<p class="muted">{m.propagate_member_visibility_help()}</p>
 					</div>
 				</details>
 			</section>

@@ -97,7 +97,7 @@ export async function declineActivityHostInvite(
 	);
 }
 
-export async function listActivityVerifiers(activityId: string): Promise<string[]> {
+export async function listActivityVerifiers(activityId: string): Promise<AdminUser[]> {
 	return responseData(
 		await api.GET('/admin/activities/{activity_id}/verifiers', {
 			params: { path: { activity_id: activityId } }
@@ -301,8 +301,8 @@ export async function listAdmins(groupId: string): Promise<AdminUser[]> {
 	);
 }
 
-export async function listGroupUsers(): Promise<AdminUser[]> {
-	return responseData(await api.GET('/admin/group-users'));
+export async function listVisibleMembers(): Promise<AdminUser[]> {
+	return responseData(await api.GET('/admin/groups/visible-members'));
 }
 
 export async function addAdmin(groupId: string, userId: string): Promise<void> {

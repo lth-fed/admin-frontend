@@ -46,7 +46,7 @@
 		ReportRequest,
 		TicketKind
 	} from '$lib/api/types';
-	import { loadGroupUserOptions } from '$lib/group-users';
+	import { loadVisibleMemberOptions } from '$lib/visible-members';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import AddonEditor from '$lib/components/AddonEditor.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
@@ -111,10 +111,10 @@
 	let savedHostIds = $state<string[]>([]);
 	let pendingHostIds = $state<string[]>([]);
 	let invitingHostId = $state<string | null>(null);
-	let verifiers = $state<string[]>([]);
+	let verifiers = $state<AdminUser[]>([]);
 	let userSuggestions = $state<AdminUser[]>([]);
 	let detailedTicketKinds = $state<TicketKind[]>([]);
-	let purchases = $state<PurchasedTicket[]>([]);
+	let owners = $state<PurchasedTicket[]>([]);
 	let verifiedTicketHolders = $state(0);
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
@@ -263,7 +263,7 @@
 			const [me, groupTree, loadedUsers] = await Promise.all([
 				getMe(),
 				listGroupTree(),
-				loadGroupUserOptions()
+				loadVisibleMemberOptions()
 			]);
 			groups = groupTree;
 			userSuggestions = loadedUsers;
@@ -318,7 +318,7 @@
 				tickets = activityTickets;
 				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
 				const activityNotifications = mayEdit ? await listActivityNotifications(id) : [];
-				purchases = mayEdit
+				owners = mayEdit
 					? (
 							await Promise.all(activityTickets.map((ticket) => listPurchasedTickets(ticket.id)))
 						).flat()
@@ -400,7 +400,7 @@
 		return { field, message };
 	}
 
-	function validate(): ValidationIssue | null {
+	function validate(isHidden: boolean): ValidationIssue | null {
 		if (
 			contactValue.trim() &&
 			contactKind === 'mailto' &&
@@ -423,6 +423,8 @@
 			return issue(m.activity_capacity(), m.capacity_too_low({ minimum: minimumCapacity }));
 		if (!id && !adminGroupIds.includes(form.creator_id))
 			return issue(m.creator(), m.admin_host_required());
+		if (!isHidden && visibilityGroupIds.length === 0)
+			return issue(m.visibility_access(), m.activity_visibility_required());
 		if ((north && !east) || (!north && east))
 			return issue(`${m.latitude()} / ${m.longitude()}`, m.coordinates_together());
 		if (north && parseCoordinate(north, 'north') === null)
@@ -672,10 +674,11 @@
 
 	async function persistActivity(isHidden: boolean): Promise<void> {
 		if (!canEdit) return;
-		const validationIssue = validate();
+		const validationIssue = validate(isHidden);
 		if (validationIssue) {
 			invalidField = validationIssue.field;
-			if (
+			if (validationIssue.field === m.visibility_access()) changeEditorTab('tickets');
+			else if (
 				validationIssue.field === m.location_url() ||
 				validationIssue.field.includes(m.latitude()) ||
 				validationIssue.field.includes(m.longitude())
@@ -804,8 +807,12 @@
 		try {
 			const activityId = crypto.randomUUID();
 			const copy = $state.snapshot(form);
+			const sourceTicketKindIds = new Set([
+				...tickets.map((ticket) => ticket.id),
+				...visibilityTicketKinds.map((kind) => kind.ticket_kind_id)
+			]);
 			const sourceTicketKinds = await Promise.all(
-				tickets.map((ticket) => getTicketKind(ticket.id))
+				[...sourceTicketKindIds].map((ticketKindId) => getTicketKind(ticketKindId))
 			);
 			await saveActivity(activityId, {
 				...copy,
@@ -1159,46 +1166,41 @@
 						<h2 class="section-title">{m.addon_statistics()}</h2>
 						<p class="muted">{m.addon_statistics_help()}</p>
 					</div>
-					<PurchaseGrid
-						{purchases}
-						kinds={detailedTicketKinds}
-						users={userSuggestions}
-						view="breakdown" />
+					<PurchaseGrid purchases={owners} kinds={detailedTicketKinds} view="breakdown" />
 				</section>
 
 				<section class="card card-pad stack">
 					<div class="purchase-section-heading">
 						<div class="purchase-counts">
 							<h2 class="section-title">
-								{m.purchasers()} <span class="pill">{purchases.length}</span>
+								{m.ticket_owners()} <span class="pill">{owners.length}</span>
 							</h2>
 							<span class="muted">
 								{m.verified_ticket_holders()}
 								<span class="pill">{verifiedTicketHolders}</span>
 							</span>
 						</div>
-						{#if purchases.length > 0}
+						{#if owners.length > 0}
 							<button
 								class="button-link secondary compact"
 								type="button"
 								aria-label={m.export_all_ticket_purchasers()}
 								title={m.export_all_ticket_purchasers()}
 								onclick={() =>
-									downloadTicketPurchasersCsv(purchases, detailedTicketKinds, userSuggestions)}>
+									downloadTicketPurchasersCsv(owners, detailedTicketKinds, userSuggestions)}>
 								<Download size={16} />
 							</button>
 						{/if}
 					</div>
-					<PurchaseGrid {purchases} kinds={detailedTicketKinds} users={userSuggestions} />
+					<PurchaseGrid purchases={owners} kinds={detailedTicketKinds} />
 				</section>
 
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.memberships()}</h2>
 					<PurchaseGrid
-						{purchases}
+						purchases={owners}
 						kinds={detailedTicketKinds}
 						{groups}
-						users={userSuggestions}
 						view="memberships" />
 				</section>
 
