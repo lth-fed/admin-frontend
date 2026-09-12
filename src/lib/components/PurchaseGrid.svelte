@@ -5,7 +5,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { Grid, WillowDark } from '@svar-ui/svelte-grid';
 	import type { IColumnConfig, IRow } from '@svar-ui/svelte-grid';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	let {
 		purchases,
@@ -138,7 +138,7 @@
 	}
 
 	type Breakdown = { id: string; item: string; type: string; buyers: IRow[]; total: number };
-	type AddonBreakdown = Breakdown & { answers: SvelteMap<string, Breakdown> };
+	type AddonBreakdown = Breakdown & { key: string; answers: SvelteMap<string, Breakdown> };
 	type AddonExport = { name: string; answers: { name: string; count: number }[] };
 
 	function buildBreakdownRows(): IRow[] {
@@ -171,6 +171,7 @@
 				const addonKey = normalizedName(addon.name);
 				const addonRow = addons.get(addonKey) ?? {
 					id: `addon:${addonKey}`,
+					key: addonKey,
 					item: localize(addon.name),
 					type: m.addons(),
 					buyers: [],
@@ -267,10 +268,18 @@
 				total: kronor(addon.total),
 				open: false,
 				data: answers,
-				csvExport: {
-					label: m.export_addon_answers({ addon: addon.item }),
-					run: () => exportAddonCsv(addonExport)
-				}
+				csvExports: [
+					{
+						kind: 'totals',
+						label: m.export_addon_totals({ addon: addon.item }),
+						run: () => exportAddonCsv(addonExport)
+					},
+					{
+						kind: 'users',
+						label: m.export_addon_users({ addon: addon.item }),
+						run: () => exportAddonUsersCsv(addon.key, addon.item)
+					}
+				]
 			});
 		}
 		return rows;
@@ -282,10 +291,45 @@
 
 	function exportAddonCsv(addon: AddonExport): void {
 		const csv = [
-			'name,count',
+			[m.csv_addon_option(), m.csv_count()].map(csvCell).join(','),
 			...addon.answers.map((answer) => `${csvCell(answer.name)},${answer.count}`)
 		].join('\r\n');
 		downloadCsv(csv, `${fileSlug(addon.name) || 'addon'}-answers.csv`);
+	}
+
+	function exportAddonUsersCsv(addonKey: string, addonName: string): void {
+		const users = new SvelteMap<string, { name: string; answers: SvelteSet<string> }>();
+		for (const ticket of purchases) {
+			const kind = kindsById.get(ticket.ticket_kind_id);
+			if (!kind) continue;
+			for (const answer of ticket.addons) {
+				const addon = kind.available_addons.find((item) => item.id === answer.addon_id);
+				if (!addon || normalizedName(addon.name) !== addonKey) continue;
+				const selectedAnswers = addon.options
+					.filter((option) => answer.selected_options.includes(option.idx))
+					.map((option) => localize(option.name));
+				const selectedText = answer.selected_text.trim();
+				if (selectedText) selectedAnswers.push(selectedText);
+				if (selectedAnswers.length === 0) continue;
+				const user = users.get(ticket.owner_id) ?? {
+					name: ticket.owner_name,
+					answers: new SvelteSet<string>()
+				};
+				for (const selectedAnswer of selectedAnswers) user.answers.add(selectedAnswer);
+				users.set(ticket.owner_id, user);
+			}
+		}
+		const csv = [
+			[m.csv_name(), m.csv_user_id(), m.csv_addon_options()].map(csvCell).join(','),
+			...[...users.entries()]
+				.sort((left, right) =>
+					userLabel(left[0], left[1].name).localeCompare(userLabel(right[0], right[1].name))
+				)
+				.map(([userId, user]) =>
+					[user.name, userId, [...user.answers].join(' | ')].map(csvCell).join(',')
+				)
+		].join('\r\n');
+		downloadCsv(csv, `${fileSlug(addonName) || 'addon'}-users.csv`);
 	}
 
 	function fileSlug(value: string): string {
