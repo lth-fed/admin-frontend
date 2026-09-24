@@ -5,6 +5,7 @@
 	import { getMe, saveLanguage } from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import ToastStack from '$lib/components/ToastStack.svelte';
+	import PersonalAccountSetting from '$lib/components/PersonalAccountSetting.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime';
 	import { Button, WillowDark } from '@svar-ui/svelte-core';
@@ -158,6 +159,7 @@
 					</a>
 				</nav>
 				<div class="sidebar-footer">
+					<PersonalAccountSetting />
 					<label class="locale-picker compact">
 						<span>{m.language()}</span>
 						<select value={getLocale()} onchange={changeLocale}>

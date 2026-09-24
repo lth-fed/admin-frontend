@@ -1,4 +1,12 @@
 import * as m from '$lib/paraglide/messages';
+import { hasDietaryPreferencesAddon } from '$lib/ticket-presets';
+import {
+	defaultTransferGroupUpdates,
+	defaultTransferGroups,
+	hasDefaultTransferGroups,
+	sameGroups
+} from '$lib/transfer-settings';
+import { toasts } from '$lib/toasts.svelte';
 import { api, mutationData, responseData } from './client';
 import type {
 	Activity,
@@ -30,6 +38,18 @@ export async function getMe(): Promise<Me> {
 
 export async function saveLanguage(language: string): Promise<void> {
 	responseData(await api.PUT('/user/language', { body: language }));
+}
+
+export async function getPersonalAccount(): Promise<string | null> {
+	return responseData(await api.GET('/admin/personal-account')) ?? null;
+}
+
+export async function savePersonalAccount(account: string): Promise<void> {
+	mutation(await api.PUT('/admin/personal-account', { body: account }));
+}
+
+export async function unlinkPersonalAccount(): Promise<void> {
+	mutation(await api.DELETE('/admin/personal-account'));
 }
 
 export async function listActivities(start?: Date, end?: Date): Promise<BriefActivity[]> {
@@ -151,12 +171,105 @@ export async function getTicketKind(id: string): Promise<TicketKind> {
 	return responseData(await api.GET('/tickets/ticket-kind/{id}', { params: { path: { id } } }));
 }
 
-export async function saveTicketKind(id: string, body: PutTicketKind): Promise<void> {
-	mutation(await api.PUT('/admin/ticket-kinds/{id}', { params: { path: { id } }, body }));
+export async function saveTicketKind(id: string, body: PutTicketKind): Promise<PutTicketKind> {
+	const before = await activityTicketKinds(body.activity_id);
+	const dietary = body.addons.find((addon) => hasDietaryPreferencesAddon([addon]));
+	if (dietary) {
+		const existing = (await listActivityAddons(body.activity_id)).find((addon) =>
+			hasDietaryPreferencesAddon([addon])
+		);
+		if (!existing) await saveActivityAddon(body.activity_id, dietary);
+		body = {
+			...body,
+			addons: [
+				...body.addons.filter((addon) => !hasDietaryPreferencesAddon([addon])),
+				existing ?? dietary
+			]
+		};
+	}
+	const existing = before.find((kind) => kind.ticket_kind_id === id);
+	const after = [...before.filter((kind) => kind.ticket_kind_id !== id), body];
+	if (
+		existing &&
+		hasDefaultTransferGroups(existing, before) &&
+		sameGroups(body.transfer_group_ids, existing.transfer_group_ids)
+	) {
+		body = { ...body, transfer_group_ids: defaultTransferGroups(body, after) };
+		after[after.length - 1] = body;
+	}
+	const transferGroupUpdates = defaultTransferGroupUpdates(before, after, id);
+	await putTicketKind(id, body);
+	await applyDefaultTransferGroupUpdates(before, transferGroupUpdates);
+	toasts.show('success', m.backend_success());
+	return body;
+}
+
+async function activityTicketKinds(activityId: string): Promise<TicketKind[]> {
+	return Promise.all(
+		(await listActivityTicketKinds(activityId)).map((kind) => getTicketKind(kind.id))
+	);
+}
+
+async function applyDefaultTransferGroupUpdates(
+	ticketKinds: TicketKind[],
+	updates: Map<string, string[]>
+): Promise<void> {
+	for (const [ticketKindId, transfer_group_ids] of updates) {
+		const kind = ticketKinds.find((candidate) => candidate.ticket_kind_id === ticketKindId);
+		if (!kind) continue;
+		await putTicketKind(kind.ticket_kind_id, {
+			...kind,
+			name: kind.ticket_kind_name,
+			addons: kind.available_addons,
+			transfer_group_ids
+		});
+	}
+}
+
+async function putTicketKind(id: string, body: PutTicketKind): Promise<void> {
+	const { addons, ...fields } = body;
+	responseData(
+		await api.PUT('/admin/ticket-kinds/{id}', {
+			params: { path: { id } },
+			body: { ...fields, addon_ids: addons.map((addon) => addon.id) }
+		})
+	);
+}
+
+export async function listActivityAddons(activity_id: string): Promise<PutTicketKind['addons']> {
+	return responseData(
+		await api.GET('/admin/activities/{activity_id}/addons', { params: { path: { activity_id } } })
+	);
+}
+
+export async function saveActivityAddon(
+	activity_id: string,
+	addon: PutTicketKind['addons'][number]
+): Promise<void> {
+	responseData(
+		await api.PUT('/admin/activities/{activity_id}/addons', {
+			params: { path: { activity_id } },
+			body: addon
+		})
+	);
+}
+
+export async function deleteActivityAddon(activity_id: string, addon_id: string): Promise<void> {
+	responseData(
+		await api.DELETE('/admin/activities/{activity_id}/addons/{addon_id}', {
+			params: { path: { activity_id, addon_id } }
+		})
+	);
 }
 
 export async function deleteTicketKind(id: string): Promise<void> {
-	mutation(await api.DELETE('/admin/ticket-kinds/{id}', { params: { path: { id } } }));
+	const ticket = await getTicketKind(id);
+	const before = await activityTicketKinds(ticket.activity_id);
+	const after = before.filter((kind) => kind.ticket_kind_id !== id);
+	const transferGroupUpdates = defaultTransferGroupUpdates(before, after, id);
+	responseData(await api.DELETE('/admin/ticket-kinds/{id}', { params: { path: { id } } }));
+	await applyDefaultTransferGroupUpdates(before, transferGroupUpdates);
+	toasts.show('success', m.backend_success());
 }
 
 export async function listPurchasedTickets(id: string): Promise<PurchasedTicket[]> {

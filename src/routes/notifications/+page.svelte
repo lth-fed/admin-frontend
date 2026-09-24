@@ -276,12 +276,7 @@
 
 	async function save(): Promise<void> {
 		if (!targetId || saving || !selectedActivityPublished) return;
-		if (
-			!draft.title.sv?.trim() ||
-			!draft.title.en?.trim() ||
-			!draft.content.sv?.trim() ||
-			!draft.content.en?.trim()
-		) {
+		if (!draft.content.sv?.trim() || !draft.content.en?.trim()) {
 			error = m.required_fields();
 			return;
 		}
@@ -375,7 +370,10 @@
 					{@const notification = item.notification}
 					<li>
 						<div class="list-main">
-							<strong>{localize(notification.title, m.notification())}</strong>
+							<strong
+								>{[localize(notification.sender, ''), localize(notification.title, '')]
+									.filter((part) => part.trim())
+									.join(': ')}</strong>
 							<span
 								>{item.targetLabel} · {item.targetType === 'activity'
 									? m.notification_target_activity()

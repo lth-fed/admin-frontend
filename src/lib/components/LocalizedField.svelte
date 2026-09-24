@@ -16,6 +16,7 @@
 		placeholderEn,
 		prefix,
 		prefixLabel,
+		prefixSeparator = '',
 		suggestions = [],
 		onchange
 	}: {
@@ -30,6 +31,7 @@
 		placeholderEn?: string;
 		prefix?: string;
 		prefixLabel?: string;
+		prefixSeparator?: string;
 		suggestions?: Localized[];
 		onchange: (value: Localized) => void;
 	} = $props();
@@ -72,7 +74,9 @@
 			<div class:invalid={errorSv} class:with-prefix={prefix} class="localized-input">
 				{#if prefix}
 					<span class="input-prefix" title={prefix}>
-						{#if prefixLabel}<span class="visually-hidden">{prefixLabel}: </span>{/if}{prefix}
+						{#if prefixLabel}<span class="visually-hidden"
+								>{prefixLabel}:
+							</span>{/if}{prefix}{value.sv?.trim() ? prefixSeparator : ''}
 					</span>
 				{/if}
 				<input
@@ -110,7 +114,9 @@
 					<div class:invalid={errorEn} class:with-prefix={prefix} class="localized-input">
 						{#if prefix}
 							<span class="input-prefix" title={prefix}>
-								{#if prefixLabel}<span class="visually-hidden">{prefixLabel}: </span>{/if}{prefix}
+								{#if prefixLabel}<span class="visually-hidden"
+										>{prefixLabel}:
+									</span>{/if}{prefix}{value.en?.trim() ? prefixSeparator : ''}
 							</span>
 						{/if}
 						<input

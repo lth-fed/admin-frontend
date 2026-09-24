@@ -60,7 +60,7 @@
 	});
 </script>
 
-<div class="grid-2">
+<div class="grid-2 mb-2">
 	{#if showName}
 		<LocalizedField
 			value={value.name}

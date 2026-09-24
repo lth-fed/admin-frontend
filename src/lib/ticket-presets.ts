@@ -7,12 +7,18 @@ type TicketAddon = PutTicketKind['addons'][number];
 
 type PresetShape = Pick<
 	PutTicketKind,
-	'price' | 'max_tickets' | 'min_tickets' | 'allowed_group_ids' | 'addons'
+	| 'price'
+	| 'max_tickets'
+	| 'min_tickets'
+	| 'allowed_group_ids'
+	| 'addons'
+	| 'for_visibility'
+	| 'transfer_group_ids'
 >;
 
 export function createDietaryPreferencesAddon(existingAddons: TicketAddon[] = []): TicketAddon {
 	const existing = existingAddons.find(hasDietaryPreferencesName);
-	if (existing?.options.length) return copyTicketAddon(existing);
+	if (existing) return structuredClone(existing);
 	const names = [
 		{ sv: 'Vegetarian', en: 'Vegetarian' },
 		{ sv: 'Vegan', en: 'Vegan' },
@@ -84,12 +90,12 @@ export function setDietaryPreferencesAddon(
 		: withoutDietary;
 }
 
-/** Copies addons with fresh IDs so they can belong to an independent ticket kind. */
+/** Ticket copies reference the same activity-owned add-ons. */
 export function copyTicketAddons(addons: TicketAddon[]): TicketAddon[] {
-	return addons.map(copyTicketAddon);
+	return structuredClone(addons);
 }
 
-/** Copies one addon with fresh IDs for reuse by another ticket kind. */
+/** Copies an add-on with fresh IDs for another activity or a separate definition. */
 export function copyTicketAddon(addon: TicketAddon): TicketAddon {
 	return {
 		...addon,
@@ -105,49 +111,9 @@ export function copyTicketAddon(addon: TicketAddon): TicketAddon {
 	};
 }
 
-/** Identifies frontend-shared addons independently of their per-ticket database IDs. */
-export function ticketAddonDataKey(addon: TicketAddon): string {
-	return JSON.stringify({
-		name: addon.name,
-		multiple_alternatives: addon.multiple_alternatives,
-		has_text_field: addon.has_text_field,
-		required: addon.required,
-		options: addon.options.map((option) => ({
-			idx: option.idx,
-			name: option.name,
-			price: option.price,
-			bookkeeping_prices: option.bookkeeping_prices,
-			bookkeeping_price_categories: option.bookkeeping_price_categories
-		}))
-	});
-}
-
-/** Applies shared addon data while retaining IDs owned by the destination ticket kind. */
-export function applySharedTicketAddon(source: TicketAddon, destination: TicketAddon): TicketAddon {
-	return {
-		...structuredClone(source),
-		id: destination.id,
-		options: source.options.map((option, index) => ({
-			...structuredClone(option),
-			id: destination.options[index]?.id ?? crypto.randomUUID(),
-			idx: index
-		}))
-	};
-}
-
-function addonsWithDietaryPreferencesDefault(addons: TicketAddon[]): TicketAddon[] {
-	return addons.length > 0 ? addons : [createDietaryPreferencesAddon()];
-}
-
 /** Selects the least-complex editor that can represent a saved ticket kind without data loss. */
 export function detectTicketPreset(ticket: TicketKind): TicketPresetId {
-	if (
-		ticket.price === 0 &&
-		ticket.max_tickets === 0 &&
-		ticket.min_tickets === 0 &&
-		ticket.available_addons.length === 0
-	)
-		return 'none';
+	if (ticket.for_visibility) return 'none';
 	if (
 		ticket.price === 0 &&
 		ticket.min_tickets === 0 &&
@@ -170,6 +136,8 @@ export function detectTicketPreset(ticket: TicketKind): TicketPresetId {
 /** Applies only the invariants owned by a preset; shared dates and transfer settings are retained. */
 export function applyTicketPreset(form: PutTicketKind, preset: TicketPresetId): PresetShape {
 	const current = {
+		for_visibility: false,
+		transfer_group_ids: [...form.transfer_group_ids],
 		price: form.price,
 		max_tickets: form.max_tickets,
 		min_tickets: form.min_tickets,
@@ -189,6 +157,7 @@ export function applyTicketPreset(form: PutTicketKind, preset: TicketPresetId): 
 		case 'none':
 			return {
 				...current,
+				for_visibility: true,
 				price: 0,
 				max_tickets: 0,
 				min_tickets: 0,
@@ -201,7 +170,7 @@ export function applyTicketPreset(form: PutTicketKind, preset: TicketPresetId): 
 				price: 0,
 				max_tickets: current.max_tickets === UNLIMITED_TICKETS ? 1 : current.max_tickets,
 				min_tickets: 0,
-				addons: [createDietaryPreferencesAddon()]
+				addons: current.addons
 			};
 		case 'simple':
 			return {
@@ -211,14 +180,15 @@ export function applyTicketPreset(form: PutTicketKind, preset: TicketPresetId): 
 						? 1
 						: current.max_tickets,
 				min_tickets: 0,
-				addons: addonsWithDietaryPreferencesDefault(current.addons)
+				addons: current.addons
 			};
 		case 'allocated':
 			return {
 				...current,
+				transfer_group_ids: [...current.allowed_group_ids],
 				max_tickets: UNLIMITED_TICKETS,
 				min_tickets: Math.max(1, current.min_tickets),
-				addons: addonsWithDietaryPreferencesDefault(current.addons)
+				addons: current.addons
 			};
 		case 'advanced':
 			return current;

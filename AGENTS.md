@@ -1,3 +1,5 @@
+- the human does ui testing, so don't do any smoke tests
+
 ## Project Configuration
 
 - **Language**: TypeScript

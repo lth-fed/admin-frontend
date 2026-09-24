@@ -216,12 +216,7 @@
 
 	async function submitNotification(): Promise<void> {
 		if (!id || !notificationId || notificationSaving) return;
-		if (
-			!notificationDraft.title.sv?.trim() ||
-			!notificationDraft.title.en?.trim() ||
-			!notificationDraft.content.sv?.trim() ||
-			!notificationDraft.content.en?.trim()
-		) {
+		if (!notificationDraft.content.sv?.trim() || !notificationDraft.content.en?.trim()) {
 			error = `${m.notification()}: ${m.required_fields()}`;
 			toasts.show('error', error);
 			return;
@@ -512,7 +507,10 @@
 						{#each notifications as notification (notification.id)}
 							<li>
 								<div class="list-main">
-									<strong>{localize(notification.title, m.notification())}</strong>
+									<strong
+										>{[localize(notification.sender, ''), localize(notification.title, '')]
+											.filter((part) => part.trim())
+											.join(': ')}</strong>
 									<span
 										>{dateTime(notification.send_at)} · {notification.sent
 											? m.sent()

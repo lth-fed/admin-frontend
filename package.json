@@ -47,6 +47,7 @@
 		"@svar-ui/svelte-core": "^2.6.0",
 		"@svar-ui/svelte-grid": "^2.7.1",
 		"carta-md": "^4.11.2",
+		"cropperjs": "^2.2.0",
 		"github-markdown-css": "^5.9.0",
 		"oidc-client-ts": "^3.5.0",
 		"openapi-fetch": "^0.17.0",

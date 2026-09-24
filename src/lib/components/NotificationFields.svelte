@@ -33,9 +33,9 @@
 	value={value.title}
 	labelSv={m.notification_title_sv()}
 	labelEn={m.notification_title_en()}
-	prefix={sender === undefined ? undefined : `${sender}:`}
+	prefix={sender}
+	prefixSeparator=":"
 	prefixLabel={m.notification_sender()}
-	required
 	onchange={(title) => update({ title })} />
 <LocalizedField
 	value={value.content}

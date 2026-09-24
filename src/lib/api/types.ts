@@ -8,7 +8,10 @@ export type ReportRequest = components['schemas']['ReportRequest'];
 export type ExternalSaleCategory = components['schemas']['ExternalSaleCategory'];
 export type ActivityTicketKind = components['schemas']['ActivityTicketKind'];
 export type TicketKind = components['schemas']['Kind'];
-export type PutTicketKind = components['schemas']['PutTicketKind'];
+/** Editor state retains definitions for display; the API sends only their IDs. */
+export type PutTicketKind = Omit<components['schemas']['PutTicketKind'], 'addon_ids'> & {
+	addons: components['schemas']['AvailableAddon'][];
+};
 export type PutNotification = components['schemas']['PutNotification'];
 export type ActivityNotification = components['schemas']['ActivityNotification'];
 export type PutActivityNotification = components['schemas']['PutActivityNotification'];

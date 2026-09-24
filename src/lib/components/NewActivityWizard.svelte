@@ -16,6 +16,7 @@
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
+	import { cropActivityImage } from '$lib/crop-image';
 	import * as m from '$lib/paraglide/messages';
 	import { UNLIMITED_TICKETS } from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
@@ -181,8 +182,10 @@
 		uploading = true;
 		error = null;
 		try {
-			activity.image_id = await uploadImage(file);
-			imageUrl = URL.createObjectURL(file);
+			const cropped = await cropActivityImage(file);
+			if (!cropped) return;
+			activity.image_id = await uploadImage(cropped);
+			imageUrl = URL.createObjectURL(cropped);
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {

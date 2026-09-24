@@ -7,14 +7,13 @@
 		getActivity,
 		getTicketKind,
 		listActivityTicketKinds,
+		listActivityAddons,
 		listGroupTree,
 		saveTicketKind
 	} from '$lib/api/admin';
 	import { ApiError, frontendError } from '$lib/api/client';
 	import { defaultTicketRelease, ticketReleaseIsTooSoon } from '$lib/activity-form';
-	import { loadAddonNameOptions } from '$lib/addon-names';
-	import type { Group, PutTicketKind } from '$lib/api/types';
-	import AddonEditor from '$lib/components/AddonEditor.svelte';
+	import type { Group, PutTicketKind, TicketKind } from '$lib/api/types';
 	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import TicketFields from '$lib/components/TicketFields.svelte';
@@ -23,37 +22,40 @@
 	import {
 		applyTicketPreset,
 		copyTicketAddons,
-		createDietaryPreferencesAddon,
-		detectTicketPreset,
 		hasDietaryPreferencesAddon,
-		isDietaryPreferencesAddon,
 		setDietaryPreferencesAddon,
-		ticketAddonDataKey,
+		detectTicketPreset,
 		type TicketPresetId,
 		UNLIMITED_TICKETS
 	} from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
+	import {
+		TRANSFER_START,
+		TRANSFER_STOP,
+		hasTransferWindow,
+		defaultTransferGroups,
+		sameGroups
+	} from '$lib/transfer-settings';
 	import { ArrowLeft, Copy, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { onMount } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
 
 	const I32_MAX = UNLIMITED_TICKETS;
 	type ValidationIssue = { field: string; message: string };
 	type DuplicateTicketNavigationState = { duplicatedTicket?: PutTicketKind };
 
 	let { id, activityId }: { id: string | null; activityId: string } = $props();
-	let loading = $state(false);
+	let loading = $state(true);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let invalidField = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
-	let addonNameSuggestions = $state<PutTicketKind['name'][]>([]);
 	let reusableAddons = $state<PutTicketKind['addons']>([]);
-	let overriddenAddonIds = $state<string[]>([]);
 	let originalTicket = $state<Awaited<ReturnType<typeof getTicketKind>> | null>(null);
 	let limitMaximum = $state(false);
 	let transfersEnabled = $state(true);
+	let otherTicketKinds = $state<TicketKind[]>([]);
+	let customizingTransfers = $state(false);
 	let preset = $state<TicketPresetId>('simple');
 	let allocatedFree = $state(false);
 	let allocatedPaidPrice = $state(0);
@@ -65,14 +67,20 @@
 		purchasing_available_start: defaultTicketRelease(),
 		purchasing_available_stop: new Date(Date.now() + 86_400_000).toISOString(),
 		max_tickets: 100,
+		for_visibility: false,
 		min_tickets: 0,
 		allow_transfer_ticket_start: new Date().toISOString(),
 		allow_transfer_ticket_stop: new Date(Date.now() + 31_536_000_000).toISOString(),
 		transfer_group_ids: [],
 		allowed_group_ids: [],
-		addons: [createDietaryPreferencesAddon()]
+		addons: []
 	});
 	let savedTicketSnapshot = $state('');
+	const defaultGroupIds = $derived(defaultTransferGroups(form, [...otherTicketKinds, form]));
+	const transferGroupsDefault = $derived(sameGroups(form.transfer_group_ids, defaultGroupIds));
+	const limitedTransferWindow = $derived(
+		hasTransferWindow(form.allow_transfer_ticket_start, form.allow_transfer_ticket_stop)
+	);
 	let allowNavigation = $state(false);
 	let now = $state(Date.now());
 	const ticketDirty = $derived(
@@ -87,17 +95,6 @@
 			!originalTicket.has_been_released &&
 			new Date(originalTicket.purchasing_available_start).getTime() > now + 20 * 60_000
 		)
-	);
-	const lockedAddonIds = $derived(
-		form.addons
-			.filter(
-				(addon) =>
-					!overriddenAddonIds.includes(addon.id) &&
-					reusableAddons.some(
-						(candidate) => ticketAddonDataKey(candidate) === ticketAddonDataKey(addon)
-					)
-			)
-			.map((addon) => addon.id)
 	);
 
 	onMount(() => {
@@ -123,44 +120,33 @@
 		error = null;
 		try {
 			if (!id) {
-				const [groupTree, addonNames, activity, activityTickets] = await Promise.all([
+				const [groupTree, activity, activityTickets] = await Promise.all([
 					listGroupTree(),
-					loadAddonNameOptions(),
 					getActivity(activityId),
 					listActivityTicketKinds(activityId)
 				]);
-				reusableAddons = (
-					await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)))
-				).flatMap((ticket) => structuredClone(ticket.available_addons));
-				form.addons = setDietaryPreferencesAddon([], true, reusableAddons);
+				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
+				otherTicketKinds = kinds;
+				reusableAddons = await listActivityAddons(activityId);
+				form.allow_transfer_ticket_start = TRANSFER_START;
+				form.allow_transfer_ticket_stop = TRANSFER_STOP;
+				form.transfer_group_ids = defaultTransferGroups(form, [...kinds, form]);
 				groups = groupTree;
-				addonNameSuggestions = addonNames;
 				activityStart = activity.time_start;
 				form.activity_id = activityId;
-				form.transfer_group_ids = [activity.creator_id];
-				form.allow_transfer_ticket_start = form.purchasing_available_start;
-				form.allow_transfer_ticket_stop = activityStart;
 				savedTicketSnapshot = serializeTicketEditor();
 				return;
 			}
-			const [ticket, groupTree, addonNames] = await Promise.all([
-				getTicketKind(id),
-				listGroupTree(),
-				loadAddonNameOptions()
-			]);
+			const [ticket, groupTree] = await Promise.all([getTicketKind(id), listGroupTree()]);
 			originalTicket = ticket;
 			const [activity, activityTickets] = await Promise.all([
 				getActivity(ticket.activity_id),
 				listActivityTicketKinds(ticket.activity_id)
 			]);
 			activityStart = activity.time_start;
-			reusableAddons = (
-				await Promise.all(
-					activityTickets
-						.filter((activityTicket) => activityTicket.id !== ticket.ticket_kind_id)
-						.map((activityTicket) => getTicketKind(activityTicket.id))
-				)
-			).flatMap((activityTicket) => structuredClone(activityTicket.available_addons));
+			reusableAddons = await listActivityAddons(ticket.activity_id);
+			const kinds = await Promise.all(activityTickets.map((kind) => getTicketKind(kind.id)));
+			otherTicketKinds = kinds.filter((kind) => kind.ticket_kind_id !== ticket.ticket_kind_id);
 			preset = detectTicketPreset(ticket);
 			allocatedFree = preset === 'allocated' && ticket.price === 0;
 			allocatedPaidPrice = ticket.price;
@@ -171,6 +157,7 @@
 				purchasing_available_start: ticket.purchasing_available_start,
 				purchasing_available_stop: ticket.purchasing_available_stop,
 				max_tickets: ticket.max_tickets,
+				for_visibility: ticket.for_visibility,
 				min_tickets: ticket.min_tickets,
 				allow_transfer_ticket_start: ticket.allow_transfer_ticket_start,
 				allow_transfer_ticket_stop: ticket.allow_transfer_ticket_stop,
@@ -185,7 +172,6 @@
 					: loadedForm;
 			if (duplicatedTicket) replaceState(resolve('/tickets/[id]', { id }), {});
 			groups = groupTree;
-			addonNameSuggestions = addonNames;
 			limitMaximum = ticket.max_tickets !== I32_MAX;
 			transfersEnabled =
 				new Date(ticket.allow_transfer_ticket_stop) > new Date(ticket.allow_transfer_ticket_start);
@@ -216,59 +202,10 @@
 			addons.length !== originalTicket.available_addons.length
 		)
 			return false;
-		return addons.every((addon, index) => {
-			const old = originalTicket!.available_addons[index];
-			return (
-				addon.id === old.id &&
-				JSON.stringify(addon.name) === JSON.stringify(old.name) &&
-				addon.multiple_alternatives === old.multiple_alternatives &&
-				addon.has_text_field === old.has_text_field &&
-				addon.required === old.required &&
-				addon.options.length === old.options.length &&
-				addon.options.every((option, optionIndex) => {
-					const oldOption = old.options[optionIndex];
-					return (
-						option.id === oldOption.id &&
-						JSON.stringify(option.name) === JSON.stringify(oldOption.name) &&
-						option.price === oldOption.price
-					);
-				})
-			);
-		});
-	}
-
-	function validAddons(addons: PutTicketKind['addons']): boolean {
-		if (!Array.isArray(addons)) return false;
-		const ids = new SvelteSet<string>();
-		const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-		for (const addon of addons) {
-			if (
-				!uuid.test(addon.id) ||
-				ids.has(addon.id) ||
-				!addon.name?.sv?.trim() ||
-				!addon.name?.en?.trim() ||
-				!Array.isArray(addon.options)
-			)
-				return false;
-			ids.add(addon.id);
-			for (const option of addon.options) {
-				if (
-					!uuid.test(option.id) ||
-					ids.has(option.id) ||
-					!option.name?.sv?.trim() ||
-					!option.name?.en?.trim() ||
-					!Number.isSafeInteger(option.price) ||
-					option.price < 0 ||
-					option.bookkeeping_prices.length !== option.bookkeeping_price_categories.length ||
-					option.bookkeeping_price_categories.some((category) => !category.trim()) ||
-					option.bookkeeping_prices.some((price) => !Number.isSafeInteger(price)) ||
-					option.bookkeeping_prices.reduce((sum, price) => sum + price, 0) !== option.price
-				)
-					return false;
-				ids.add(option.id);
-			}
-		}
-		return true;
+		return sameValues(
+			addons.map((addon) => addon.id),
+			originalTicket.available_addons.map((addon) => addon.id)
+		);
 	}
 
 	function validate(body: PutTicketKind, addons: PutTicketKind['addons']): ValidationIssue | null {
@@ -317,7 +254,8 @@
 			return { field: m.transfer_groups(), message: m.required_fields() };
 		if (preset === 'none' && body.allowed_group_ids.length !== 1)
 			return { field: m.allowed_groups(), message: m.preset_requires_one_group() };
-		if (!validAddons(addons)) return { field: m.addons(), message: m.ticket_addons_invalid() };
+		if (!addons.every((addon) => uuid.test(addon.id)))
+			return { field: m.addons(), message: m.ticket_addons_invalid() };
 		return null;
 	}
 
@@ -336,6 +274,7 @@
 		const now = new Date().toISOString();
 		const originalBody: PutTicketKind = {
 			activity_id: originalTicket.activity_id,
+			for_visibility: originalTicket.for_visibility,
 			name: { ...originalTicket.ticket_kind_name },
 			price: originalTicket.price,
 			purchasing_available_start: originalTicket.purchasing_available_start,
@@ -382,14 +321,20 @@
 	function toggleTransfers(enabled: boolean): void {
 		transfersEnabled = enabled;
 		if (enabled) {
-			form.allow_transfer_ticket_start = form.purchasing_available_start;
-			form.allow_transfer_ticket_stop = activityStart;
-			if (form.transfer_group_ids.length === 0 && form.allowed_group_ids.length > 0)
-				form.transfer_group_ids = [form.allowed_group_ids[0]];
+			form.allow_transfer_ticket_start = TRANSFER_START;
+			form.allow_transfer_ticket_stop = TRANSFER_STOP;
 		}
 	}
 
+	function toggleTransferWindow(limited: boolean): void {
+		form.allow_transfer_ticket_start = limited ? form.purchasing_available_start : TRANSFER_START;
+		form.allow_transfer_ticket_stop = limited ? activityStart : TRANSFER_STOP;
+	}
+
 	function updateTicketForm(value: PutTicketKind): void {
+		if (transferGroupsDefault) {
+			value.transfer_group_ids = defaultTransferGroups(value, [...otherTicketKinds, value]);
+		}
 		if (form.allow_transfer_ticket_start === form.purchasing_available_start)
 			value.allow_transfer_ticket_start = value.purchasing_available_start;
 		form = value;
@@ -399,13 +344,12 @@
 		const selected = String(next) as TicketPresetId;
 		if (selected === preset || purchasedFieldsLocked) return;
 		const previousPreset = preset;
-		const removesAddons =
-			(selected === 'none' && form.addons.length > 0) ||
-			(selected === 'free' &&
-				(form.addons.length !== 1 || !isDietaryPreferencesAddon(form.addons[0])));
-		if (removesAddons && !confirm(m.preset_removes_addons())) return;
 		preset = selected;
-		form = { ...form, ...applyTicketPreset(form, selected) };
+		updateTicketForm({
+			...form,
+			...applyTicketPreset(form, selected),
+			transfer_group_ids: [...form.transfer_group_ids]
+		});
 		if (previousPreset === 'none' && selected !== 'none') toggleTransfers(true);
 		limitMaximum = form.max_tickets !== I32_MAX;
 		if (selected === 'allocated') {
@@ -422,10 +366,6 @@
 		} else {
 			form.price = Math.max(allocatedPaidPrice, 1);
 		}
-	}
-
-	function toggleDietaryPreferences(enabled: boolean): void {
-		form.addons = setDietaryPreferencesAddon(form.addons, enabled, reusableAddons);
 	}
 
 	async function submit(event: SubmitEvent): Promise<void> {
@@ -449,8 +389,7 @@
 				return;
 			}
 			const ticketId = id ?? crypto.randomUUID();
-			await saveTicketKind(ticketId, body);
-			form = body;
+			form = await saveTicketKind(ticketId, body);
 			savedTicketSnapshot = serializeTicketEditor();
 			if (!id) {
 				allowNavigation = true;
@@ -528,11 +467,6 @@
 			saving = false;
 		}
 	}
-
-	function overrideSharedAddon(addonId: string): void {
-		if (!confirm(m.override_shared_addon_confirm())) return;
-		overriddenAddonIds = [...overriddenAddonIds, addonId];
-	}
 </script>
 
 <header class="page-header edit-page-header">
@@ -608,7 +542,15 @@
 				{#if preset === 'allocated' || preset === 'advanced'}
 					<label class="field"
 						><span>{preset === 'allocated' ? m.guaranteed_tickets() : m.minimum_tickets()}</span
-						><input type="number" min="0" bind:value={form.min_tickets} /></label>
+						><input
+							type="number"
+							min="0"
+							value={form.min_tickets}
+							oninput={(event) =>
+								updateTicketForm({
+									...form,
+									min_tickets: event.currentTarget.valueAsNumber
+								})} /></label>
 				{/if}
 				{#if preset === 'advanced'}
 					<div class="field">
@@ -622,55 +564,109 @@
 					</div>
 				{/if}
 			</div>
-			{#if preset !== 'none'}<div class="stack transfer-settings">
-					<label class="switch-field">
-						<Switch value={transfersEnabled} onchange={({ value }) => toggleTransfers(value)} />
-						<span>{m.allow_transfers()}</span>
-					</label>
-					{#if transfersEnabled}
-						<div class="date-range">
-							<DateTimePicker
-								label={m.transfer_from()}
-								value={form.allow_transfer_ticket_start}
-								onchange={(value) => (form.allow_transfer_ticket_start = value)} />
-							<DateTimePicker
-								label={m.transfer_until()}
-								value={form.allow_transfer_ticket_stop}
-								error={new Date(form.allow_transfer_ticket_stop) <=
-									new Date(form.allow_transfer_ticket_start)}
-								onchange={(value) => (form.allow_transfer_ticket_stop = value)} />
+			{#if preset !== 'none'}
+				<section class="stack transfer-settings">
+					<div>
+						<h2 class="section-title">{m.transfer_settings()}</h2>
+						<p class="muted">
+							{form.min_tickets > 0
+								? m.transfer_default_allocated()
+								: m.transfer_default_ordinary()}
+						</p>
+						{#if transferGroupsDefault}
+							<p>{m.transfer_groups_using_defaults()}</p>
+						{:else}
+							<button
+								type="button"
+								class="button-link secondary mt-2"
+								onclick={() => {
+									form.transfer_group_ids = [...defaultGroupIds];
+									customizingTransfers = false;
+								}}>{m.reset_transfer_groups()}</button>
+						{/if}
+					</div>
+					{#if !customizingTransfers && transferGroupsDefault && transfersEnabled && !limitedTransferWindow}
+						<button
+							type="button"
+							class="button-link secondary"
+							onclick={() => (customizingTransfers = true)}>{m.customize_transfers()}</button>
+					{:else}
+						<div class="transfer-toggles">
+							<label class="switch-field">
+								<Switch value={transfersEnabled} onchange={({ value }) => toggleTransfers(value)} />
+								<span>{m.allow_transfers()}</span>
+							</label>
+							{#if transfersEnabled}
+								<label class="switch-field">
+									<Switch
+										value={limitedTransferWindow}
+										onchange={({ value }) => toggleTransferWindow(value)} />
+									<span>{m.limit_transfer_window()}</span>
+								</label>
+							{/if}
 						</div>
-						<GroupTreePicker
-							title={m.transfer_groups()}
-							{groups}
-							selectedIds={form.transfer_group_ids}
-							inheritDescendants
-							onchange={(ids) => {
-								form.transfer_group_ids = ids;
-							}} />
-						<p class="muted">{m.transfer_groups_descendants()}</p>
+						{#if transfersEnabled}
+							{#if limitedTransferWindow}
+								<div class="date-range">
+									<DateTimePicker
+										label={m.transfer_from()}
+										value={form.allow_transfer_ticket_start}
+										onchange={(value) => (form.allow_transfer_ticket_start = value)} />
+									<DateTimePicker
+										label={m.transfer_until()}
+										value={form.allow_transfer_ticket_stop}
+										error={new Date(form.allow_transfer_ticket_stop) <=
+											new Date(form.allow_transfer_ticket_start)}
+										onchange={(value) => (form.allow_transfer_ticket_stop = value)} />
+								</div>
+							{/if}
+							<GroupTreePicker
+								title={m.transfer_groups()}
+								{groups}
+								selectedIds={form.transfer_group_ids}
+								inheritDescendants
+								onchange={(ids) => {
+									form.transfer_group_ids = ids;
+								}} />
+							<p class="muted">{m.transfer_groups_descendants()}</p>
+						{/if}
 					{/if}
-				</div>{/if}
+				</section>
+			{/if}
 		</section>
 
-		{#if preset === 'free' || preset === 'simple' || preset === 'allocated'}
-			<label class="switch-field dietary-preferences-toggle" inert={purchasedFieldsLocked}>
-				<Switch
-					value={hasDietaryPreferencesAddon(form.addons)}
-					onchange={({ value }) => toggleDietaryPreferences(value)} />
-				<span>{m.include_dietary_preferences()}</span>
-			</label>
-		{/if}
-
-		{#if preset === 'simple' || preset === 'allocated' || preset === 'advanced'}
-			<AddonEditor
-				addons={form.addons}
-				{reusableAddons}
-				{lockedAddonIds}
-				suggestions={addonNameSuggestions}
-				structureLocked={purchasedFieldsLocked}
-				onoverride={overrideSharedAddon}
-				onchange={(addons) => (form.addons = addons)} />
+		{#if preset !== 'none'}
+			<section class="card card-pad stack">
+				<h2>{m.addons()}</h2>
+				<label class="switch-field">
+					<Switch
+						value={hasDietaryPreferencesAddon(form.addons)}
+						disabled={purchasedFieldsLocked}
+						onchange={({ value }) => {
+							form.addons = setDietaryPreferencesAddon(
+								$state.snapshot(form.addons),
+								value,
+								$state.snapshot([...form.addons, ...reusableAddons])
+							);
+						}} />
+					<span>{m.include_dietary_preferences()}</span>
+				</label>
+				<p class="muted">{m.create_addons_in_activity()}</p>
+				{#each reusableAddons.filter((addon) => !hasDietaryPreferencesAddon( [addon] )) as addon (addon.id)}
+					<label class="switch-field">
+						<input
+							type="checkbox"
+							disabled={purchasedFieldsLocked}
+							checked={form.addons.some((item) => item.id === addon.id)}
+							onchange={(event) => {
+								form.addons = form.addons.filter((item) => item.id !== addon.id);
+								if (event.currentTarget.checked)
+									form.addons = [...form.addons, structuredClone($state.snapshot(addon))];
+							}} />
+						<span>{localize(addon.name)}</span>
+					</label>
+				{/each}
+			</section>
 		{/if}
 
 		<div class="editor-action-dock">
