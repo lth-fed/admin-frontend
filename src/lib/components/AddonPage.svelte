@@ -7,7 +7,7 @@
 		getMe,
 		getTicketKind,
 		listActivityAddons,
-		listActivityTicketKinds,
+		getActivityTicketKinds,
 		saveActivityAddon,
 		saveTicketKind,
 		deleteActivityAddon
@@ -16,7 +16,9 @@
 	import type { PutTicketKind, TicketKind } from '$lib/api/types';
 	import { validAddons } from '$lib/addon-validation';
 	import AddonFields from './AddonFields.svelte';
-	import { localize } from '$lib/i18n';
+	import { ticketKindBody } from '$lib/ticket-kind';
+	import { toasts } from '$lib/toasts.svelte';
+	import { localize, sortByLocalizedName } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { ArrowLeft, Trash2 } from '@lucide/svelte';
 
@@ -29,6 +31,9 @@
 	let locked = $state(false);
 	let assigned = $state(false);
 	let ticketKinds = $state<TicketKind[]>([]);
+	const sortedTicketKinds = $derived(
+		sortByLocalizedName(ticketKinds, (kind) => kind.ticket_kind_name)
+	);
 	let selectedKindIds = $state<string[]>([]);
 	let activityName = $state('');
 	let showErrors = $state(false);
@@ -51,17 +56,16 @@
 	async function load(): Promise<void> {
 		try {
 			if (!activityId) throw new Error(m.not_found());
-			const [activity, me, addons, tickets] = await Promise.all([
+			const [activity, me, addons, kinds] = await Promise.all([
 				getActivity(activityId),
 				getMe(),
 				listActivityAddons(activityId),
-				listActivityTicketKinds(activityId)
+				getActivityTicketKinds(activityId)
 			]);
 			canEdit = me.admin_group_ids.some(
 				(groupId) =>
 					groupId === activity.creator_id || activity.hosts.some((host) => host.id === groupId)
 			);
-			const kinds = await Promise.all(tickets.map((ticket) => getTicketKind(ticket.id)));
 			activityName = localize(activity.title);
 			const linked = kinds.filter((kind) => kind.available_addons.some((item) => item.id === id));
 			ticketKinds = kinds.filter((kind) => !kind.for_visibility);
@@ -111,17 +115,21 @@
 				const current = await getTicketKind(kind.ticket_kind_id);
 				const addons = current.available_addons.filter((item) => item.id !== addon!.id);
 				if (selected) addons.push($state.snapshot(addon));
-				await saveTicketKind(kind.ticket_kind_id, {
-					...current,
-					name: current.ticket_kind_name,
-					addons
-				});
+				await saveTicketKind(
+					kind.ticket_kind_id,
+					{
+						...ticketKindBody(current),
+						addons
+					},
+					{ syncTransfers: false, notify: false }
+				);
 				kind.available_addons = addons;
 				assigned = ticketKinds.some((item) =>
 					item.available_addons.some((entry) => entry.id === addon!.id)
 				);
 			}
 			snapshot = serialize();
+			toasts.show('success', m.backend_success());
 			if (!id) {
 				allowNavigation = true;
 				await goto(
@@ -157,7 +165,7 @@
 	<div>
 		<p class="eyebrow">{m.addons()}</p>
 		<h1>
-			{id ? m.edit_addon() : m.create_new_addon()}{addon
+			{id ? m.edit_addon() : m.new_addon()}{addon
 				? ` · ${localize(addon.name, '').trim() || m.empty_addon()}`
 				: ''}
 		</h1>
@@ -185,7 +193,7 @@
 			<h2 class="section-title">{m.addon_ticket_kinds()}</h2>
 			<p class="muted">{activityName}</p>
 			<p class="muted">{m.addon_assignment_help()}</p>
-			{#each ticketKinds as kind (kind.ticket_kind_id)}
+			{#each sortedTicketKinds as kind (kind.ticket_kind_id)}
 				<label class="switch-field">
 					<input
 						type="checkbox"
@@ -208,7 +216,7 @@
 					type="button"
 					disabled={!canEdit || saving || assigned}
 					title={assigned ? m.unassign_addon_before_delete() : undefined}
-					onclick={() => void remove()}><Trash2 size={17} /> {m.remove()}</button
+					onclick={() => void remove()}><Trash2 size={17} /> {m.delete()}</button
 				>{/if}
 		</div>
 	</form>

@@ -87,7 +87,7 @@
 			errorEn={showErrors && !addon.name.en?.trim()}
 			required
 			onchange={(name) => update({ name })} />
-		<div class="addon-switches">
+		<div class="switch-group">
 			<label class="switch-field"
 				><Switch
 					value={addon.required}
@@ -121,7 +121,8 @@
 			onclick={addOption}><Plus size={17} />{m.add_option()}</button>
 	</div>
 	{#each addon.options as option, index (option.id)}
-		{@const open = expandedOptionIds.includes(option.id) ||
+		{@const open =
+			expandedOptionIds.includes(option.id) ||
 			(showErrors &&
 				(!option.name.sv?.trim() ||
 					!option.name.en?.trim() ||
@@ -129,7 +130,7 @@
 					option.price < 0 ||
 					!validBookkeeping(option)))}
 		<details
-			class={["option-panel", { "option-card": open, }]}
+			class="option-panel"
 			ontoggle={(event) => {
 				const expanded = event.currentTarget.open;
 				if (expanded === expandedOptionIds.includes(option.id)) return;
@@ -137,15 +138,15 @@
 					? [...expandedOptionIds, option.id]
 					: expandedOptionIds.filter((id) => id !== option.id);
 			}}
-			open={open}>
-			<summary class={["cursor-pointer", {"p-0!": !open}]}>
+			{open}>
+			<summary>
 				<span class="collapse-summary-name"
 					><ChevronRight class="collapse-arrow" size={17} />{localize(option.name, '').trim() ||
 						m.empty_option()}</span>
 				<span>{kronor(option.price)}</span>
 			</summary>
 			<div class="stack option-content">
-				<div class="toolbar addon-actions">
+				<div class="toolbar justify-end">
 					<button
 						type="button"
 						class="button-link secondary danger-button"

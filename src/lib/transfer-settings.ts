@@ -36,20 +36,6 @@ export function updatedDefaultTransferGroups(
 	return sameGroups(kind.transfer_group_ids, groups) ? undefined : groups;
 }
 
-export function defaultTransferGroupUpdates<T extends TransferKind & { ticket_kind_id: string }>(
-	before: T[],
-	after: TransferKind[],
-	excludeId?: string
-): Map<string, string[]> {
-	const updates = new Map<string, string[]>();
-	for (const kind of before) {
-		if (kind.ticket_kind_id === excludeId) continue;
-		const groups = updatedDefaultTransferGroups(kind, before, after);
-		if (groups !== undefined) updates.set(kind.ticket_kind_id, groups);
-	}
-	return updates;
-}
-
 export function hasTransferWindow(start: string, stop: string): boolean {
 	return (
 		new Date(start).getTime() !== new Date(TRANSFER_START).getTime() ||

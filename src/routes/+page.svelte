@@ -430,7 +430,7 @@
 					<time>{dateTime(activity.time_start)}</time>
 					<strong>{localize(activity.title)}</strong>
 					<span>{localize(activity.creator_name, activity.creator_path)}</span>
-					{#if activity.is_hidden}<span class="pill hidden">{m.hidden()}</span>{/if}
+					{#if activity.is_hidden}<span class="pill hidden">{m.unpublished()}</span>{/if}
 				</a>
 			{/each}
 		{/if}

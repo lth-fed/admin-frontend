@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-	defaultTransferGroupUpdates,
 	defaultTransferGroups,
 	hasDefaultTransferGroups,
 	updatedDefaultTransferGroups
@@ -42,11 +41,9 @@ test('adding a ticket preserves existing customized recipients', () => {
 	const customized = { ...kind(['b'], ['b']), ticket_kind_id: 'customized' };
 	const created = { ...kind(['c'], ['c']), ticket_kind_id: 'created' };
 	const before = [standard, customized];
-	const updates = defaultTransferGroupUpdates(before, [...before, created], created.ticket_kind_id);
-
-	assert.deepEqual([...updates], [['standard', ['a', 'b', 'c']]]);
-	assert.equal(updates.has('customized'), false);
-	assert.equal(updates.has('created'), false);
+	const after = [...before, created];
+	assert.deepEqual(updatedDefaultTransferGroups(standard, before, after), ['a', 'b', 'c']);
+	assert.equal(updatedDefaultTransferGroups(customized, before, after), undefined);
 });
 
 test('custom empty recipients remain custom and visibility kinds are never synchronized', () => {

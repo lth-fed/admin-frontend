@@ -39,6 +39,22 @@ pnpm lint
 pnpm build
 ```
 
+## Frontend structure
+
+Shared UI primitives live in `src/routes/layout.css`. Feature styles are grouped under
+`src/lib/styles/` for the app shell, editors, calendar, and group trees; keep each feature's
+responsive rules in the same file.
+
+Use `getActivityTicketKinds` to load full ticket details, `ticketKindBody` to build editable ticket
+data, and `sortByLocalizedName` for ticket and add-on lists. Transfer defaults are defined in
+`transfer-settings.ts`; activity copies preserve their supplied transfer groups.
+
+Use “New …” / “Ny/Nytt …” for creation links and page titles, and “Create …” / “Skapa …” for actions
+that create the record. Activity publication status is “Unpublished” / “Opublicerad”; hidden groups
+are a separate state. Call add-ons “Tillval” in Swedish. When reviewing translations, read both
+catalogues first, then check call sites before merging similar messages. Reuse keys when both the
+meaning and UI role match; preserve distinctions such as purchaser versus ticket holder.
+
 ## Contextual field and button help
 
 Wrap any field or button in `HelpTip` and provide its translated explanation. The component places a

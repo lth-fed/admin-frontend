@@ -20,7 +20,7 @@
 		getVerifiedTicketHolderCount,
 		getMe,
 		inviteActivityHost,
-		listActivityTicketKinds,
+		getActivityTicketKinds,
 		listActivityAddons,
 		saveActivityAddon,
 		listGroupTree,
@@ -38,7 +38,6 @@
 		AdminUser,
 		ActivityNotification,
 		ActivityNotificationKind,
-		ActivityTicketKind,
 		ExternalSaleCategory,
 		Group,
 		PutActivity,
@@ -61,10 +60,11 @@
 	import NotificationWarnings from '$lib/components/NotificationWarnings.svelte';
 	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
-	import { copiedLocalizedTitle, dateTime, kronor, localize } from '$lib/i18n';
+	import { copiedLocalizedTitle, dateTime, kronor, localize, sortByLocalizedName } from '$lib/i18n';
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import { cropActivityImage } from '$lib/crop-image';
 	import * as m from '$lib/paraglide/messages';
+	import { ticketKindBody } from '$lib/ticket-kind';
 	import { copyTicketAddon } from '$lib/ticket-presets';
 	import { defaultTransferGroups, hasDefaultTransferGroups } from '$lib/transfer-settings';
 	import {
@@ -99,7 +99,6 @@
 	let reportError = $state<string | null>(null);
 	let groups = $state<Group[]>([]);
 	let adminGroupIds = $state<string[]>([]);
-	let tickets = $state<ActivityTicketKind[]>([]);
 	let imageUrl = $state('');
 	let north = $state('');
 	let east = $state('');
@@ -120,7 +119,8 @@
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
 	let savingVisibility = $state(false);
-	let sharedAddons = $state<PutTicketKind['addons']>([]);
+	let activityAddons = $state<PutTicketKind['addons']>([]);
+	const sortedAddons = $derived(sortByLocalizedName(activityAddons, (addon) => addon.name));
 	let savingTransferSettings = $state(false);
 	let notificationSaving = $state(false);
 	let editingNotificationId = $state<string | null>(null);
@@ -150,7 +150,7 @@
 		['logistics', m.creation_step_logistics()],
 		['tickets', m.creation_step_tickets()],
 		['sales', m.creation_step_sales()],
-		['notifications', m.creation_step_notifications()]
+		['notifications', m.notifications()]
 	]);
 	let form = $state<PutActivity>({
 		responsible_name: '',
@@ -175,7 +175,10 @@
 	);
 	const visibilityTicketKinds = $derived(detailedTicketKinds.filter((kind) => kind.for_visibility));
 	const regularTicketKinds = $derived(
-		detailedTicketKinds.filter((kind) => !visibilityTicketKinds.includes(kind))
+		sortByLocalizedName(
+			detailedTicketKinds.filter((kind) => !kind.for_visibility),
+			(kind) => kind.ticket_kind_name
+		)
 	);
 	const ticketKindVisibilityGroupIds = $derived([
 		...new Set(regularTicketKinds.flatMap((kind) => kind.allowed_group_ids))
@@ -183,14 +186,8 @@
 	const canDelete = $derived(
 		Boolean(id && canEdit && form.is_hidden && regularTicketKinds.length === 0)
 	);
-	const purchasableTickets: TicketKind[] = $derived(
-		tickets
-			.map((ticket) => detailedTicketKinds.find((kind) => kind.ticket_kind_id === ticket.id))
-			.filter((tk) => tk !== undefined && !tk.for_visibility)
-			.map((tk) => tk!)
-	);
 	const transferGroupsDefault = $derived(
-		purchasableTickets.every((kind) => hasDefaultTransferGroups(kind, purchasableTickets))
+		regularTicketKinds.every((kind) => hasDefaultTransferGroups(kind, regularTicketKinds))
 	);
 	const hasUnsavedChanges = $derived(
 		(savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot) ||
@@ -254,10 +251,7 @@
 			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
 			if (id) {
-				const [activity, activityTickets] = await Promise.all([
-					getActivity(id),
-					listActivityTicketKinds(id)
-				]);
+				const [activity, kinds] = await Promise.all([getActivity(id), getActivityTicketKinds(id)]);
 				const additionalHostIds = activity.hosts
 					.map((host) => host.id)
 					.filter((hostId) => hostId !== activity.creator_id);
@@ -300,16 +294,14 @@
 				limitCapacity = activity.max_tickets !== I32_MAX;
 				north = activity.location.coordinate_wgs84?.north.toString() ?? '';
 				east = activity.location.coordinate_wgs84?.east.toString() ?? '';
-				tickets = activityTickets;
-				const kinds = await Promise.all(activityTickets.map((ticket) => getTicketKind(ticket.id)));
 				const activityNotifications = mayEdit ? await listActivityNotifications(id) : [];
 				owners = mayEdit
 					? (
-							await Promise.all(activityTickets.map((ticket) => listPurchasedTickets(ticket.id)))
+							await Promise.all(kinds.map((ticket) => listPurchasedTickets(ticket.ticket_kind_id)))
 						).flat()
 					: [];
 				detailedTicketKinds = kinds;
-				sharedAddons = await listActivityAddons(id);
+				activityAddons = await listActivityAddons(id);
 				visibilityGroupIds = [...new Set(kinds.flatMap((kind) => kind.allowed_group_ids))];
 				scheduledNotifications = activityNotifications;
 				notificationTarget = kinds.some((kind) => kind.has_been_purchased)
@@ -516,27 +508,6 @@
 		}
 	}
 
-	function ticketKindBody(
-		kind: TicketKind,
-		addons: PutTicketKind['addons'] = kind.available_addons
-	): PutTicketKind {
-		return {
-			activity_id: kind.activity_id,
-			name: kind.ticket_kind_name,
-			price: kind.price,
-			purchasing_available_start: kind.purchasing_available_start,
-			purchasing_available_stop: kind.purchasing_available_stop,
-			max_tickets: kind.max_tickets,
-			for_visibility: kind.for_visibility,
-			min_tickets: kind.min_tickets,
-			allow_transfer_ticket_start: kind.allow_transfer_ticket_start,
-			allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-			transfer_group_ids: [...kind.transfer_group_ids],
-			allowed_group_ids: kind.allowed_group_ids,
-			addons
-		};
-	}
-
 	async function persistVisibilityGroups(selectedIds: string[]): Promise<void> {
 		if (!id || !canEdit || savingVisibility) return;
 		const lockedIds = new Set(ticketKindVisibilityGroupIds);
@@ -546,37 +517,49 @@
 		error = null;
 		try {
 			if (primary) {
-				await saveTicketKind(primary.ticket_kind_id, {
-					...ticketKindBody(primary),
-					allowed_group_ids: editableIds
-				});
+				await saveTicketKind(
+					primary.ticket_kind_id,
+					{
+						...ticketKindBody(primary),
+						allowed_group_ids: editableIds
+					},
+					{ notify: false }
+				);
 				primary.allowed_group_ids = editableIds;
 				for (const redundant of visibilityTicketKinds.slice(1)) {
 					if (redundant.allowed_group_ids.length === 0) continue;
-					await saveTicketKind(redundant.ticket_kind_id, {
-						...ticketKindBody(redundant),
-						allowed_group_ids: []
-					});
+					await saveTicketKind(
+						redundant.ticket_kind_id,
+						{
+							...ticketKindBody(redundant),
+							allowed_group_ids: []
+						},
+						{ notify: false }
+					);
 					redundant.allowed_group_ids = [];
 				}
 			} else if (editableIds.length > 0) {
 				const release = new Date(Date.now() + 15 * 60 * 1_000).toISOString();
 				const ticketKindId = crypto.randomUUID();
-				await saveTicketKind(ticketKindId, {
-					activity_id: id,
-					name: { sv: 'null', en: 'null' },
-					price: 0,
-					purchasing_available_start: release,
-					purchasing_available_stop: release,
-					max_tickets: 0,
-					for_visibility: true,
-					min_tickets: 0,
-					allow_transfer_ticket_start: release,
-					allow_transfer_ticket_stop: release,
-					transfer_group_ids: [],
-					allowed_group_ids: editableIds,
-					addons: []
-				});
+				await saveTicketKind(
+					ticketKindId,
+					{
+						activity_id: id,
+						name: { sv: 'null', en: 'null' },
+						price: 0,
+						purchasing_available_start: release,
+						purchasing_available_stop: release,
+						max_tickets: 0,
+						for_visibility: true,
+						min_tickets: 0,
+						allow_transfer_ticket_start: release,
+						allow_transfer_ticket_stop: release,
+						transfer_group_ids: [],
+						allowed_group_ids: editableIds,
+						addons: []
+					},
+					{ notify: false }
+				);
 				detailedTicketKinds = [...detailedTicketKinds, await getTicketKind(ticketKindId)];
 			}
 			visibilityGroupIds = [...new Set([...ticketKindVisibilityGroupIds, ...editableIds])];
@@ -589,17 +572,21 @@
 	}
 
 	async function persistTransferSettings(): Promise<void> {
-		if (!canEdit || purchasableTickets.length === 0) return;
+		if (!canEdit || regularTicketKinds.length === 0) return;
 		savingTransferSettings = true;
 		error = null;
 		try {
-			for (const kind of purchasableTickets) {
-				if (hasDefaultTransferGroups(kind, purchasableTickets)) continue;
-				const transfer_group_ids = defaultTransferGroups(kind, purchasableTickets);
-				await saveTicketKind(kind.ticket_kind_id, {
-					...ticketKindBody(kind),
-					transfer_group_ids
-				});
+			for (const kind of regularTicketKinds) {
+				if (hasDefaultTransferGroups(kind, regularTicketKinds)) continue;
+				const transfer_group_ids = defaultTransferGroups(kind, regularTicketKinds);
+				await saveTicketKind(
+					kind.ticket_kind_id,
+					{
+						...ticketKindBody(kind),
+						transfer_group_ids
+					},
+					{ syncTransfers: false, notify: false }
+				);
 				kind.transfer_group_ids = transfer_group_ids;
 			}
 			toasts.show('success', m.backend_success());
@@ -760,13 +747,7 @@
 		try {
 			const activityId = crypto.randomUUID();
 			const copy = $state.snapshot(form);
-			const sourceTicketKindIds = new Set([
-				...tickets.map((ticket) => ticket.id),
-				...visibilityTicketKinds.map((kind) => kind.ticket_kind_id)
-			]);
-			const sourceTicketKinds = await Promise.all(
-				[...sourceTicketKindIds].map((ticketKindId) => getTicketKind(ticketKindId))
-			);
+			const sourceTicketKinds = await getActivityTicketKinds(id);
 			await saveActivity(activityId, {
 				...copy,
 				is_hidden: true,
@@ -785,24 +766,20 @@
 					const releaseHasPassed =
 						kind.has_been_released || new Date(kind.purchasing_available_start).getTime() <= now;
 					const release = releaseHasPassed ? delayedRelease : kind.purchasing_available_start;
-					return saveTicketKind(crypto.randomUUID(), {
-						activity_id: activityId,
-						name: { ...kind.ticket_kind_name },
-						price: kind.price,
-						purchasing_available_start: release,
-						purchasing_available_stop: kind.purchasing_available_stop,
-						max_tickets: kind.max_tickets,
-						for_visibility: kind.for_visibility,
-						min_tickets: kind.min_tickets,
-						allow_transfer_ticket_start:
-							kind.allow_transfer_ticket_start === kind.purchasing_available_start
-								? release
-								: kind.allow_transfer_ticket_start,
-						allow_transfer_ticket_stop: kind.allow_transfer_ticket_stop,
-						transfer_group_ids: [...kind.transfer_group_ids],
-						allowed_group_ids: [...kind.allowed_group_ids],
-						addons: kind.available_addons.map((addon) => addonCopies.get(addon.id)!)
-					});
+					return saveTicketKind(
+						crypto.randomUUID(),
+						{
+							...ticketKindBody(kind),
+							activity_id: activityId,
+							purchasing_available_start: release,
+							allow_transfer_ticket_start:
+								kind.allow_transfer_ticket_start === kind.purchasing_available_start
+									? release
+									: kind.allow_transfer_ticket_start,
+							addons: kind.available_addons.map((addon) => addonCopies.get(addon.id)!)
+						},
+						{ syncTransfers: false, notify: false }
+					);
 				})
 			);
 			allowNavigation = true;
@@ -848,7 +825,7 @@
 						.title.sv || form.title.en
 						? ` · ${localize(form.title)}`
 						: ''}</span>
-				{#if form.is_hidden}<span class="pill hidden">{m.not_published()}</span>{/if}
+				{#if form.is_hidden}<span class="pill hidden">{m.unpublished()}</span>{/if}
 			</span>
 		</h1>
 	</div>
@@ -1000,10 +977,10 @@
 								><Plus size={17} /> {m.new_ticket()}</a>
 						{/if}
 					</div>
-					{#if purchasableTickets.length === 0}<p class="empty-state">
+					{#if regularTicketKinds.length === 0}<p class="empty-state">
 							{m.empty()}
 						</p>{:else}<ul class="list">
-							{#each purchasableTickets as ticket (ticket.ticket_kind_id)}<li>
+							{#each regularTicketKinds as ticket (ticket.ticket_kind_id)}<li>
 									<div class="list-main">
 										<strong
 											>{localize(ticket.ticket_kind_name, '').trim() ||
@@ -1025,11 +1002,11 @@
 					<div class="section-heading">
 						<h2 class="section-title">{m.addons()}</h2>
 						{#if canEdit}<a class="button-link" href={resolve(`/addons/new?activity=${id}`)}
-								><Plus size={17} /> {m.create_new_addon()}</a
+								><Plus size={17} /> {m.new_addon()}</a
 							>{/if}
 					</div>
 					<ul class="list">
-						{#each sharedAddons as addon (addon.id)}
+						{#each sortedAddons as addon (addon.id)}
 							{@const prices = addon.options.map((option) => option.price)}
 							{@const minPrice = prices.length ? Math.min(...prices) : 0}
 							{@const maxPrice = prices.length ? Math.max(...prices) : 0}
@@ -1066,7 +1043,7 @@
 						disabledTitle={m.visibility_access_from_ticket_kind()}
 						onchange={persistVisibilityGroups} />
 				</section>
-				{#if purchasableTickets.length > 0}
+				{#if regularTicketKinds.length > 0}
 					<section class="card card-pad stack">
 						<h2 class="section-title">{m.transfer_groups()}</h2>
 						<p class="muted">{m.transfer_defaults_explanation()}</p>
@@ -1134,7 +1111,7 @@
 					<div class="purchase-section-heading">
 						<div class="purchase-counts">
 							<h2 class="section-title">
-								{m.ticket_owners()} <span class="pill">{owners.length}</span>
+								{m.ticket_holders()} <span class="pill">{owners.length}</span>
 							</h2>
 							<span class="muted">
 								{m.verified_ticket_holders()}
@@ -1287,7 +1264,7 @@
 				</section>
 				<section class="card card-pad stack">
 					<h2 class="section-title">
-						{editingNotificationId ? m.edit_notification() : m.add_notification()}
+						{editingNotificationId ? m.edit_notification() : m.new_notification()}
 					</h2>
 					{#if form.is_hidden}
 						<p class="error-banner" role="alert">{m.activity_not_published_notification()}</p>

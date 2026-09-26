@@ -45,7 +45,7 @@
 		color: #c8ceca;
 		background: #252a27;
 		cursor: help;
-		top: 0.5em;
+		top: 0;
 	}
 	.help-tip-button:hover,
 	.help-tip-button:focus-visible {

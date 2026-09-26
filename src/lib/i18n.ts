@@ -9,6 +9,11 @@ export function localize(value: Localized | undefined, fallback = '—'): string
 	return value[locale] ?? value.sv ?? value.en ?? Object.values(value)[0] ?? fallback;
 }
 
+export function sortByLocalizedName<T>(items: T[], name: (item: T) => Localized): T[] {
+	const collator = new Intl.Collator(getLocale(), { numeric: true, sensitivity: 'base' });
+	return [...items].sort((a, b) => collator.compare(localize(name(a), ''), localize(name(b), '')));
+}
+
 /** Adds a consistent copy suffix while keeping identical translations identical. */
 export function copiedLocalizedTitle(value: Localized): Localized {
 	const swedish = `${value.sv ?? ''} (kopia)`;

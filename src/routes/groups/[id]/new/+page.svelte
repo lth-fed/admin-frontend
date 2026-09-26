@@ -175,13 +175,13 @@
 	}
 </script>
 
-<svelte:head><title>{m.create_child_group()} · {m.app_name()}</title></svelte:head>
+<svelte:head><title>{m.new_child_group()} · {m.app_name()}</title></svelte:head>
 
 <header class="page-header edit-page-header">
 	<div>
 		<p class="eyebrow">{m.nav_groups()}</p>
 		<h1>
-			{m.create_child_group()}{parent ? ` · ${localize(parent.name, parent.path)}` : ''}
+			{m.new_child_group()}{parent ? ` · ${localize(parent.name, parent.path)}` : ''}
 		</h1>
 	</div>
 	<a class="button-link secondary" href={resolve('/groups')}><ArrowLeft size={18} /> {m.back()}</a>
@@ -199,7 +199,7 @@
 		{#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 		<section class="card card-pad stack">
 			<div>
-				<h2 class="section-title">{m.create_child_group()}</h2>
+				<h2 class="section-title">{m.new_child_group()}</h2>
 				<p class="muted">{m.child_group_help()}</p>
 			</div>
 			<div class="grid-2">

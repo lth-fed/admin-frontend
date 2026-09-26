@@ -320,12 +320,12 @@
 	}
 </script>
 
-<svelte:head><title>{m.notifications_title()} · {m.app_name()}</title></svelte:head>
+<svelte:head><title>{m.notifications()} · {m.app_name()}</title></svelte:head>
 
 <div class="page-header">
 	<div>
-		<p class="eyebrow">{m.nav_notifications()}</p>
-		<h1>{m.notifications_title()}</h1>
+		<p class="eyebrow">{m.notifications()}</p>
+		<h1>{m.notifications()}</h1>
 		<p class="muted">{m.notifications_description()}</p>
 	</div>
 </div>
@@ -427,7 +427,10 @@
 							onchange={({ value }) => void chooseTargetType(String(value) as TargetType)} />
 					</label>
 					<label class="field">
-						<span>{m.notification_target_entity()}</span>
+						<span
+							>{targetType === 'activity'
+								? m.notification_target_activity()
+								: m.notification_target_group()}</span>
 						<Select
 							value={targetId}
 							options={targetOptions}

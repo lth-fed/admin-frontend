@@ -5,5 +5,5 @@
 	const activityId = $derived(page.url.searchParams.get('activity') ?? '');
 </script>
 
-<svelte:head><title>{m.create_new_addon()} · {m.app_name()}</title></svelte:head>
+<svelte:head><title>{m.new_addon()} · {m.app_name()}</title></svelte:head>
 {#key activityId}<AddonPage id={null} {activityId} />{/key}

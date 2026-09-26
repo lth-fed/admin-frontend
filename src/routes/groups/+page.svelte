@@ -79,8 +79,8 @@
 							{#if isDirectAdmin(group)}<a
 									class="icon-button"
 									href={resolve(`/groups/${group.id}/new` as Pathname)}
-									aria-label={m.create_child_group()}
-									title={m.create_child_group()}><Plus size={19} /></a
+									aria-label={m.new_child_group()}
+									title={m.new_child_group()}><Plus size={19} /></a
 								>{/if}
 							{#if isDirectAdmin(group)}<a
 									class="button-link secondary"

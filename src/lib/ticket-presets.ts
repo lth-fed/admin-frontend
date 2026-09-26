@@ -90,11 +90,6 @@ export function setDietaryPreferencesAddon(
 		: withoutDietary;
 }
 
-/** Ticket copies reference the same activity-owned add-ons. */
-export function copyTicketAddons(addons: TicketAddon[]): TicketAddon[] {
-	return structuredClone(addons);
-}
-
 /** Copies an add-on with fresh IDs for another activity or a separate definition. */
 export function copyTicketAddon(addon: TicketAddon): TicketAddon {
 	return {

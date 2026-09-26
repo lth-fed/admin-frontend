@@ -41,10 +41,10 @@ export function downloadTicketPurchasersCsv(
 		[
 			m.csv_purchaser_name(),
 			m.csv_purchaser_id(),
-			m.csv_owner_name(),
+			m.ticket_holder(),
 			m.csv_owner_id(),
-			m.csv_ticket_kind(),
-			m.csv_amount()
+			m.ticket_kind(),
+			m.bookkeeping_amount()
 		]
 			.map(csvCell)
 			.join(','),

@@ -1,0 +1,141 @@
+.combo-user {
+	display: grid;
+	gap: 2px;
+}
+.combo-user code,
+.group-tree-picker small {
+	display: block;
+	color: #969d98;
+	font-size: 0.75rem;
+}
+.user-email-invite {
+	margin-top: 10px;
+}
+.group-icon {
+	display: inline-grid;
+	flex: 0 0 var(--group-icon-size);
+	width: var(--group-icon-size);
+	height: var(--group-icon-size);
+	place-items: center;
+	overflow: hidden;
+	border: 1px solid #3b423d;
+	border-radius: 8px;
+	color: #aeb6b1;
+	background: #202521;
+}
+.group-icon img {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+.group-list-name {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.group-list-name > div {
+	display: grid;
+}
+.group-admin-row {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	min-width: 0;
+	padding: 10px 12px;
+}
+.host-invitations {
+	margin-bottom: 20px;
+}
+.host-invitations .section-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.host-help {
+	margin-top: -8px;
+}
+.host-tree {
+	max-height: 430px;
+	overflow: auto;
+	margin-top: 12px;
+	border: 1px solid #303531;
+	border-radius: 11px;
+	background: #151816;
+}
+.group-tree-picker[aria-invalid='true'] .host-tree {
+	border-color: #bf6b6b;
+}
+.group-admin-tree > .group-tree-explorer {
+	max-height: none;
+	overflow: visible;
+	margin-top: 0;
+}
+.host-tree-row {
+	display: flex;
+	align-items: center;
+	min-height: 42px;
+	padding-right: 10px;
+	border-bottom: 1px solid #272c29;
+}
+.host-tree-row:last-child {
+	border-bottom: 0;
+}
+.tree-toggle,
+.tree-toggle-spacer {
+	width: 28px;
+	height: 28px;
+	flex: 0 0 28px;
+}
+.tree-toggle {
+	display: grid;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	color: #adb4af;
+	background: transparent;
+	cursor: pointer;
+}
+.tree-toggle:hover {
+	background: #292e2b;
+}
+.host-tree-check,
+.host-tree-label {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+	color: #d0d4d1;
+	font-size: 0.87rem;
+}
+.host-tree-check {
+	flex: 1;
+	cursor: pointer;
+}
+.host-tree-check:has(input:disabled) {
+	cursor: default;
+	opacity: 0.72;
+}
+.host-tree-invite {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+	color: #d0d4d1;
+	font-size: 0.87rem;
+}
+.host-tree-invite > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.host-tree-check span,
+.host-tree-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

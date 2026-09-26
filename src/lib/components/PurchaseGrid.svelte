@@ -115,7 +115,7 @@
 			.map(([ownerId, tickets]) => ({
 				id: `buyer:${ownerId}`,
 				item: ownerLabel(ownerId),
-				type: m.buyer(),
+				type: m.ticket_holder(),
 				count: tickets.length,
 				total: kronor(tickets.reduce((sum, ticket) => sum + purchasePrice(ticket), 0)),
 				open: false,
@@ -159,7 +159,7 @@
 			base.buyers.push({
 				id: `${base.id}:buyer:${ticket.id}`,
 				item: ownerLabel(ticket.owner_id),
-				type: m.buyer(),
+				type: m.ticket_holder(),
 				count: 1,
 				total: kronor(kind.price)
 			});
@@ -193,7 +193,7 @@
 					optionRow.buyers.push({
 						id: `${optionRow.id}:buyer:${ticket.id}`,
 						item: ownerLabel(ticket.owner_id),
-						type: m.buyer(),
+						type: m.ticket_holder(),
 						count: 1,
 						total: kronor(option.price)
 					});
@@ -213,7 +213,7 @@
 					textRow.buyers.push({
 						id: `${textRow.id}:buyer:${ticket.id}`,
 						item: ownerLabel(ticket.owner_id),
-						type: m.buyer(),
+						type: m.ticket_holder(),
 						count: 1,
 						total: kronor(0)
 					});
@@ -291,7 +291,7 @@
 
 	function exportAddonCsv(addon: AddonExport): void {
 		const csv = [
-			[m.csv_addon_option(), m.csv_count()].map(csvCell).join(','),
+			[m.addon_option(), m.purchase_count()].map(csvCell).join(','),
 			...addon.answers.map((answer) => `${csvCell(answer.name)},${answer.count}`)
 		].join('\r\n');
 		downloadCsv(csv, `${fileSlug(addon.name) || 'addon'}-answers.csv`);
@@ -320,7 +320,7 @@
 			}
 		}
 		const csv = [
-			[m.csv_name(), m.csv_user_id(), m.csv_addon_options()].map(csvCell).join(','),
+			[m.csv_name(), m.user_id(), m.csv_addon_options()].map(csvCell).join(','),
 			...[...users.entries()]
 				.sort((left, right) =>
 					userLabel(left[0], left[1].name).localeCompare(userLabel(right[0], right[1].name))
@@ -384,7 +384,7 @@
 						.map((ownerId) => ({
 							id: `membership:${group.id}:owner:${ownerId}`,
 							item: ownerLabel(ownerId),
-							type: m.buyer(),
+							type: m.ticket_holder(),
 							count: 1
 						}))
 				};

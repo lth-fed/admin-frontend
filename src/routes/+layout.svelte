@@ -141,7 +141,7 @@
 						href={resolve('/activities/new')}
 						onclick={() => (menuOpen = false)}>
 						<Plus size={19} />
-						{m.nav_new_activity()}
+						{m.new_activity()}
 					</a>
 					<a
 						class:active={page.url.pathname.startsWith('/groups')}
@@ -155,7 +155,7 @@
 						href={resolve('/notifications')}
 						onclick={() => (menuOpen = false)}>
 						<Bell size={19} />
-						{m.nav_notifications()}
+						{m.notifications()}
 					</a>
 				</nav>
 				<div class="sidebar-footer">
