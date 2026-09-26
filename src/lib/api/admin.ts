@@ -1,10 +1,10 @@
 import * as m from '$lib/paraglide/messages';
-import { hasDietaryPreferencesAddon } from '$lib/ticket-presets';
+import { ticketKindBody } from '$lib/ticket-kind';
 import {
-	defaultTransferGroupUpdates,
 	defaultTransferGroups,
 	hasDefaultTransferGroups,
-	sameGroups
+	sameGroups,
+	updatedDefaultTransferGroups
 } from '$lib/transfer-settings';
 import { toasts } from '$lib/toasts.svelte';
 import { api, mutationData, responseData } from './client';
@@ -171,22 +171,12 @@ export async function getTicketKind(id: string): Promise<TicketKind> {
 	return responseData(await api.GET('/tickets/ticket-kind/{id}', { params: { path: { id } } }));
 }
 
-export async function saveTicketKind(id: string, body: PutTicketKind): Promise<PutTicketKind> {
-	const before = await activityTicketKinds(body.activity_id);
-	const dietary = body.addons.find((addon) => hasDietaryPreferencesAddon([addon]));
-	if (dietary) {
-		const existing = (await listActivityAddons(body.activity_id)).find((addon) =>
-			hasDietaryPreferencesAddon([addon])
-		);
-		if (!existing) await saveActivityAddon(body.activity_id, dietary);
-		body = {
-			...body,
-			addons: [
-				...body.addons.filter((addon) => !hasDietaryPreferencesAddon([addon])),
-				existing ?? dietary
-			]
-		};
-	}
+export async function saveTicketKind(
+	id: string,
+	body: PutTicketKind,
+	{ syncTransfers = true, notify = true } = {}
+): Promise<PutTicketKind> {
+	const before = syncTransfers ? await getActivityTicketKinds(body.activity_id) : [];
 	const existing = before.find((kind) => kind.ticket_kind_id === id);
 	const after = [...before.filter((kind) => kind.ticket_kind_id !== id), body];
 	if (
@@ -197,30 +187,29 @@ export async function saveTicketKind(id: string, body: PutTicketKind): Promise<P
 		body = { ...body, transfer_group_ids: defaultTransferGroups(body, after) };
 		after[after.length - 1] = body;
 	}
-	const transferGroupUpdates = defaultTransferGroupUpdates(before, after, id);
 	await putTicketKind(id, body);
-	await applyDefaultTransferGroupUpdates(before, transferGroupUpdates);
-	toasts.show('success', m.backend_success());
+	await syncDefaultTransferGroups(before, after, id);
+	if (notify) toasts.show('success', m.backend_success());
 	return body;
 }
 
-async function activityTicketKinds(activityId: string): Promise<TicketKind[]> {
+export async function getActivityTicketKinds(activityId: string): Promise<TicketKind[]> {
 	return Promise.all(
 		(await listActivityTicketKinds(activityId)).map((kind) => getTicketKind(kind.id))
 	);
 }
 
-async function applyDefaultTransferGroupUpdates(
-	ticketKinds: TicketKind[],
-	updates: Map<string, string[]>
+async function syncDefaultTransferGroups(
+	before: TicketKind[],
+	after: (TicketKind | PutTicketKind)[],
+	excludeId: string
 ): Promise<void> {
-	for (const [ticketKindId, transfer_group_ids] of updates) {
-		const kind = ticketKinds.find((candidate) => candidate.ticket_kind_id === ticketKindId);
-		if (!kind) continue;
+	for (const kind of before) {
+		if (kind.ticket_kind_id === excludeId) continue;
+		const transfer_group_ids = updatedDefaultTransferGroups(kind, before, after);
+		if (transfer_group_ids === undefined) continue;
 		await putTicketKind(kind.ticket_kind_id, {
-			...kind,
-			name: kind.ticket_kind_name,
-			addons: kind.available_addons,
+			...ticketKindBody(kind),
 			transfer_group_ids
 		});
 	}
@@ -264,11 +253,10 @@ export async function deleteActivityAddon(activity_id: string, addon_id: string)
 
 export async function deleteTicketKind(id: string): Promise<void> {
 	const ticket = await getTicketKind(id);
-	const before = await activityTicketKinds(ticket.activity_id);
+	const before = await getActivityTicketKinds(ticket.activity_id);
 	const after = before.filter((kind) => kind.ticket_kind_id !== id);
-	const transferGroupUpdates = defaultTransferGroupUpdates(before, after, id);
 	responseData(await api.DELETE('/admin/ticket-kinds/{id}', { params: { path: { id } } }));
-	await applyDefaultTransferGroupUpdates(before, transferGroupUpdates);
+	await syncDefaultTransferGroups(before, after, id);
 	toasts.show('success', m.backend_success());
 }
 
@@ -278,10 +266,6 @@ export async function listPurchasedTickets(id: string): Promise<PurchasedTicket[
 			params: { path: { id } }
 		})
 	);
-}
-
-export async function listAddonNames(): Promise<PutTicketKind['name'][]> {
-	return responseData(await api.GET('/admin/addon-names'));
 }
 
 export async function listActivityNotifications(
