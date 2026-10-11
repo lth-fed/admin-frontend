@@ -39,7 +39,7 @@
 	} from '$lib/transfer-settings';
 	import { ArrowLeft, Copy, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
 	const I32_MAX = UNLIMITED_TICKETS;
 	type ValidationIssue = { field: string; message: string };
@@ -119,10 +119,12 @@
 	});
 
 	$effect(() => {
-		void load();
+		// Reload only when the editor's identity changes, not when form fields change.
+		const identity = { id, activityId };
+		untrack(() => void load(identity.id, identity.activityId));
 	});
 
-	async function load(): Promise<void> {
+	async function load(id: string | null, activityId: string): Promise<void> {
 		loading = true;
 		error = null;
 		try {
@@ -649,9 +651,11 @@
 							disabled={purchasedFieldsLocked}
 							checked={form.addons.some((item) => item.id === addon.id)}
 							onchange={(event) => {
-								form.addons = form.addons.filter((item) => item.id !== addon.id);
-								if (event.currentTarget.checked)
-									form.addons = [...form.addons, structuredClone($state.snapshot(addon))];
+								const checked = event.currentTarget.checked;
+								const remaining = form.addons.filter((item) => item.id !== addon.id);
+								form.addons = checked
+									? [...remaining, structuredClone($state.snapshot(addon))]
+									: remaining;
 							}} />
 						<span>{localize(addon.name)}</span>
 					</label>

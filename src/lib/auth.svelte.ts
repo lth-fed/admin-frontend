@@ -65,13 +65,13 @@ class AuthSession {
 
 	async #load(): Promise<void> {
 		try {
-			let user = await this.manager.getUser();
-			if (user?.expired) user = await this.manager.signinSilent();
+			const user = await this.manager.getUser();
 			this.#setUser(user);
+			if (user?.expired) await this.#renew();
 		} catch (error) {
 			this.#reportError(error);
-			await this.manager.removeUser();
-			this.#setUser(null);
+			await this.#clearRejectedSession(error);
+			if (!this.user) this.#setUser(null);
 		}
 	}
 
@@ -116,9 +116,8 @@ class AuthSession {
 				user = await this.#renew();
 			} catch (error) {
 				this.#reportError(error, m.auth_session_expired());
-				await this.manager.removeUser();
-				this.#setUser(null);
-				return null;
+				if (await this.#clearRejectedSession(error)) return null;
+				throw error;
 			}
 		}
 		if (!user) return null;
@@ -141,9 +140,8 @@ class AuthSession {
 			user = await this.#renew();
 		} catch (error) {
 			this.#reportError(error, m.auth_session_expired());
-			await this.manager.removeUser();
-			this.#setUser(null);
-			return null;
+			if (await this.#clearRejectedSession(error)) return null;
+			throw error;
 		}
 		if (!user) return null;
 		return user.access_token;
@@ -162,6 +160,17 @@ class AuthSession {
 		}
 	}
 
+	async #clearRejectedSession(error: unknown): Promise<boolean> {
+		if (
+			!(error instanceof ErrorResponse) ||
+			!['invalid_grant', 'login_required', 'interaction_required'].includes(error.error ?? '')
+		)
+			return false;
+		await this.manager.removeUser();
+		this.#setUser(null);
+		return true;
+	}
+
 	async logout(): Promise<void> {
 		await this.manager.removeUser();
 		this.#setUser(null);
@@ -170,7 +179,8 @@ class AuthSession {
 
 	#setUser(user: User | null): void {
 		this.user = user;
-		this.status = user && !user.expired ? 'authenticated' : 'anonymous';
+		// An expired access token still has a renewable session while offline.
+		this.status = user ? 'authenticated' : 'anonymous';
 	}
 
 	#reportError(error: unknown, fallback?: string): void {

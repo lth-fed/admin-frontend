@@ -1,19 +1,27 @@
 <script lang="ts">
-	import type { Localized } from '$lib/i18n'
-	import * as m from '$lib/paraglide/messages'
-	import { Switch } from '@svar-ui/svelte-core'
-	import { Carta, MarkdownEditor } from 'carta-md'
-	import 'carta-md/default.css'
-	import 'github-markdown-css/github-markdown.css'
-	import sanitizeHtml from 'sanitize-html'
-	import { untrack } from 'svelte'
+	import type { Localized } from '$lib/i18n';
+	import * as m from '$lib/paraglide/messages';
+	import { Switch } from '@svar-ui/svelte-core';
+	import { Carta, MarkdownEditor } from 'carta-md';
+	import 'carta-md/default.css';
+	import 'github-markdown-css/github-markdown.css';
+	import sanitizeHtml from 'sanitize-html';
+	import { untrack } from 'svelte';
 
-	const MAX_BYTES = 100_000
+	const MAX_BYTES = 100_000;
 	const sanitize = (html: string) =>
 		sanitizeHtml(html, {
 			// Carta also sanitizes its Shiki overlay with this function. Images are
 			// already absent from sanitize-html's default tag list, while these
 			// attributes are required to retain Carta's syntax highlighting.
+			transformTags: {
+				a: (tagName, attribs) => ({
+					tagName,
+					attribs: /^(https?:)?\/\//i.test(attribs.href ?? '')
+						? { ...attribs, target: '_blank', rel: 'noopener noreferrer external' }
+						: attribs
+				})
+			},
 			allowedAttributes: {
 				...sanitizeHtml.defaults.allowedAttributes,
 				a: ['href', 'name', 'target', 'rel'],
@@ -21,10 +29,10 @@
 				code: ['class', 'style'],
 				span: ['class', 'style']
 			}
-		})
-	const createCarta = () => new Carta({ sanitizer: sanitize })
-	const swedishCarta = createCarta()
-	const englishCarta = createCarta()
+		});
+	const createCarta = () => new Carta({ sanitizer: sanitize });
+	const swedishCarta = createCarta();
+	const englishCarta = createCarta();
 
 	let {
 		value,
@@ -35,72 +43,72 @@
 		errorEn = false,
 		onchange
 	}: {
-		value: Localized
-		labelSv: string
-		labelEn: string
-		required?: boolean
-		errorSv?: boolean
-		errorEn?: boolean
-		onchange: (value: Localized) => void
-	} = $props()
+		value: Localized;
+		labelSv: string;
+		labelEn: string;
+		required?: boolean;
+		errorSv?: boolean;
+		errorEn?: boolean;
+		onchange: (value: Localized) => void;
+	} = $props();
 
 	let overrideEnglish = $state(
 		untrack(() => {
-			const swedish = value.sv ?? ''
-			const english = value.en ?? ''
-			return (swedish === '' && english === '') || swedish !== english
+			const swedish = value.sv ?? '';
+			const english = value.en ?? '';
+			return (swedish === '' && english === '') || swedish !== english;
 		})
-	)
+	);
 	function limitUtf8(input: string): string {
-		const bytes = new TextEncoder().encode(input)
+		const bytes = new TextEncoder().encode(input);
 		return bytes.byteLength <= MAX_BYTES
 			? input
-			: new TextDecoder().decode(bytes.slice(0, MAX_BYTES))
+			: new TextDecoder().decode(bytes.slice(0, MAX_BYTES));
 	}
 
-	const rawInitialSwedish = untrack(() => value.sv ?? '')
-	const rawInitialEnglish = untrack(() => value.en ?? '')
-	let swedish = $state(limitUtf8(rawInitialSwedish))
-	let english = $state(limitUtf8(rawInitialEnglish))
-	let previousSwedish = rawInitialSwedish
-	let previousEnglish = rawInitialEnglish
+	const rawInitialSwedish = untrack(() => value.sv ?? '');
+	const rawInitialEnglish = untrack(() => value.en ?? '');
+	let swedish = $state(limitUtf8(rawInitialSwedish));
+	let english = $state(limitUtf8(rawInitialEnglish));
+	let previousSwedish = rawInitialSwedish;
+	let previousEnglish = rawInitialEnglish;
 
 	$effect(() => {
-		const current = swedish
-		if (current === previousSwedish) return
-		const limited = limitUtf8(current)
+		const current = swedish;
+		if (current === previousSwedish) return;
+		const limited = limitUtf8(current);
 		if (limited !== current) {
-			swedish = limited
-			return
+			swedish = limited;
+			return;
 		}
-		previousSwedish = limited
+		previousSwedish = limited;
 		untrack(() => {
 			if (!overrideEnglish) {
-				english = limited
-				previousEnglish = limited
+				english = limited;
+				previousEnglish = limited;
 			}
-			onchange({ ...value, sv: limited, en: overrideEnglish ? (value.en ?? '') : limited })
-		})
-	})
+			onchange({ ...value, sv: limited, en: overrideEnglish ? (value.en ?? '') : limited });
+		});
+	});
 
 	$effect(() => {
-		const current = english
-		if (current === previousEnglish) return
-		const limited = limitUtf8(current)
+		const current = english;
+		if (current === previousEnglish) return;
+		const limited = limitUtf8(current);
 		if (limited !== current) {
-			english = limited
-			return
+			english = limited;
+			return;
 		}
-		previousEnglish = limited
-		untrack(() => onchange({ ...value, en: limited }))
-	})
+		previousEnglish = limited;
+		untrack(() => onchange({ ...value, en: limited }));
+	});
 
 	function toggleOverride(enabled: boolean): void {
-		overrideEnglish = enabled
+		overrideEnglish = enabled;
 		if (!enabled) {
-			english = swedish
-			previousEnglish = swedish
-			onchange({ ...value, sv: swedish, en: swedish })
+			english = swedish;
+			previousEnglish = swedish;
+			onchange({ ...value, sv: swedish, en: swedish });
 		}
 	}
 </script>
@@ -122,9 +130,7 @@
 	</div>
 	<div class="localized-english-option">
 		<label class="switch-field localized-override">
-			<Switch
-				value={overrideEnglish}
-				onchange={({ value: enabled }) => toggleOverride(enabled)} />
+			<Switch value={overrideEnglish} onchange={({ value: enabled }) => toggleOverride(enabled)} />
 			<span>{m.override_english()}</span>
 		</label>
 		{#if overrideEnglish}
@@ -173,7 +179,7 @@
 
 	:global(.shiki),
 	:global(.shiki span) {
-	  color: var(--shiki-dark) !important;
+		color: var(--shiki-dark) !important;
 	}
 
 	:global(.carta-editor) {

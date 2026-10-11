@@ -129,6 +129,16 @@ export async function cropActivityImage(file: File): Promise<File | null> {
 			if (!bounds) return;
 			const box = (event as CustomEvent<CropBox>).detail;
 			const tolerance = 0.01;
+			if (box.width === selection.width && box.height === selection.height) {
+				const x = Math.max(bounds.x, Math.min(box.x, bounds.x + bounds.width - box.width));
+				const y = Math.max(bounds.y, Math.min(box.y, bounds.y + bounds.height - box.height));
+				if (x !== box.x || y !== box.y) {
+					// Replace the proposed move; the nested change is already inside the bounds.
+					event.preventDefault();
+					selection.$change(x, y, box.width, box.height);
+					return;
+				}
+			}
 			if (
 				box.width <= 0 ||
 				box.height <= 0 ||

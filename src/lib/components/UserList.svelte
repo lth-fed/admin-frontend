@@ -40,7 +40,6 @@
 	} & HTMLAttributes<EventTarget> = $props();
 	let value = $state('');
 	let query = $state('');
-	let emailDraft = $state('');
 	let busy = $state(false);
 	const userOptions = $derived(
 		suggestions.map((user) => ({
@@ -53,15 +52,17 @@
 	);
 	const comboOptions = $derived.by(() => {
 		const search = query.trim();
-		if (
-			!allowLuId ||
-			!search ||
-			userOptions.some((option) =>
-				option.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())
-			)
-		)
-			return userOptions;
-		const userId = search.includes(':') ? search : `lund-university:${search}`;
+		if (!search) return userOptions;
+		const email = search.replace(/^email:/, '');
+		const userId =
+			allowEmailInvite && /^\S+@\S+\.\S+$/.test(email)
+				? `email:${email}`
+				: allowLuId && !search.includes('@')
+					? search.includes(':')
+						? search
+						: `lund-university:${search}`
+					: undefined;
+		if (!userId || userOptions.some((option) => option.id === userId)) return userOptions;
 		return [
 			...userOptions,
 			{
@@ -73,7 +74,6 @@
 		];
 	});
 	const trimmedValue = $derived(value.trim());
-	const emailValue = $derived(/^\S+@\S+\.\S+$/.test(emailDraft.trim()) ? emailDraft.trim() : '');
 
 	function userId(item: string | AdminUser): string {
 		return typeof item === 'string' ? item : item.user_id;
@@ -90,17 +90,6 @@
 			await onadd(trimmedValue);
 			value = '';
 			query = '';
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function inviteEmail(): Promise<void> {
-		if (!emailValue) return;
-		busy = true;
-		try {
-			await onadd(`email:${emailValue}`);
-			emailDraft = '';
 		} finally {
 			busy = false;
 		}
@@ -136,19 +125,6 @@
 			disabled={busy || !trimmedValue}
 			onclick={() => void add()}>{addText}</button>
 	</div>
-	{#if allowEmailInvite}
-		<div class="toolbar user-email-invite">
-			<label class="field" style="flex: 1">
-				<span>{m.invite_user()}</span>
-				<input type="email" bind:value={emailDraft} placeholder="name@example.org" />
-			</label>
-			<button
-				class="button-link secondary"
-				type="button"
-				disabled={busy || !emailValue}
-				onclick={() => void inviteEmail()}>{m.invite_user()}</button>
-		</div>
-	{/if}
 	{#if items.length === 0}<p class="muted">{m.empty()}</p>{:else}<ul class="list">
 			{#each items as item (userId(item))}<li>
 					<div class="list-main">

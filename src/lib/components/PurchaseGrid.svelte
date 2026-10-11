@@ -5,7 +5,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { Grid, WillowDark } from '@svar-ui/svelte-grid';
 	import type { IColumnConfig, IRow } from '@svar-ui/svelte-grid';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap } from 'svelte/reactivity';
 
 	let {
 		purchases,
@@ -40,6 +40,7 @@
 						cell: PurchaseItemCell
 					},
 					{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
+					{ id: 'ticketKind', header: m.ticket_kind(), flexgrow: 1, width: 160 },
 					{ id: 'count', header: m.purchase_count(), width: 100 },
 					{ id: 'total', header: m.purchase_total(), width: 130 }
 				]
@@ -139,7 +140,10 @@
 
 	type Breakdown = { id: string; item: string; type: string; buyers: IRow[]; total: number };
 	type AddonBreakdown = Breakdown & { key: string; answers: SvelteMap<string, Breakdown> };
-	type AddonExport = { name: string; answers: { name: string; count: number }[] };
+	type AddonExport = {
+		name: string;
+		answers: { name: string; ticketKind: string; count: number }[];
+	};
 
 	function buildBreakdownRows(): IRow[] {
 		const baseKinds = new SvelteMap<string, Breakdown>();
@@ -159,6 +163,7 @@
 			base.buyers.push({
 				id: `${base.id}:buyer:${ticket.id}`,
 				item: ownerLabel(ticket.owner_id),
+				ticketKind: localize(kind.ticket_kind_name),
 				type: m.ticket_holder(),
 				count: 1,
 				total: kronor(kind.price)
@@ -193,6 +198,7 @@
 					optionRow.buyers.push({
 						id: `${optionRow.id}:buyer:${ticket.id}`,
 						item: ownerLabel(ticket.owner_id),
+						ticketKind: localize(kind.ticket_kind_name),
 						type: m.ticket_holder(),
 						count: 1,
 						total: kronor(option.price)
@@ -213,6 +219,7 @@
 					textRow.buyers.push({
 						id: `${textRow.id}:buyer:${ticket.id}`,
 						item: ownerLabel(ticket.owner_id),
+						ticketKind: localize(kind.ticket_kind_name),
 						type: m.ticket_holder(),
 						count: 1,
 						total: kronor(0)
@@ -255,10 +262,18 @@
 			}));
 			const addonExport: AddonExport = {
 				name: addon.item,
-				answers: [...addon.answers.values()].map((answer) => ({
-					name: answer.item,
-					count: answer.buyers.length
-				}))
+				answers: [...addon.answers.values()].flatMap((answer) => {
+					const counts = new SvelteMap<string, number>();
+					for (const buyer of answer.buyers) {
+						const ticketKind = String(buyer.ticketKind ?? '');
+						counts.set(ticketKind, (counts.get(ticketKind) ?? 0) + 1);
+					}
+					return [...counts].map(([ticketKind, count]) => ({
+						name: answer.item,
+						ticketKind,
+						count
+					}));
+				})
 			};
 			rows.push({
 				id: addon.id,
@@ -291,44 +306,42 @@
 
 	function exportAddonCsv(addon: AddonExport): void {
 		const csv = [
-			[m.addon_option(), m.purchase_count()].map(csvCell).join(','),
-			...addon.answers.map((answer) => `${csvCell(answer.name)},${answer.count}`)
+			[m.addon_option(), m.ticket_kind(), m.purchase_count()].map(csvCell).join(','),
+			...addon.answers.map((answer) =>
+				[answer.name, answer.ticketKind, answer.count].map(csvCell).join(',')
+			)
 		].join('\r\n');
 		downloadCsv(csv, `${fileSlug(addon.name) || 'addon'}-answers.csv`);
 	}
 
 	function exportAddonUsersCsv(addonKey: string, addonName: string): void {
-		const users = new SvelteMap<string, { name: string; answers: SvelteSet<string> }>();
+		const rows: string[][] = [];
 		for (const ticket of purchases) {
 			const kind = kindsById.get(ticket.ticket_kind_id);
 			if (!kind) continue;
+			const selectedAnswers: string[] = [];
 			for (const answer of ticket.addons) {
 				const addon = kind.available_addons.find((item) => item.id === answer.addon_id);
 				if (!addon || normalizedName(addon.name) !== addonKey) continue;
-				const selectedAnswers = addon.options
-					.filter((option) => answer.selected_options.includes(option.idx))
-					.map((option) => localize(option.name));
-				const selectedText = answer.selected_text.trim();
-				if (selectedText) selectedAnswers.push(selectedText);
-				if (selectedAnswers.length === 0) continue;
-				const user = users.get(ticket.owner_id) ?? {
-					name: ticket.owner_name,
-					answers: new SvelteSet<string>()
-				};
-				for (const selectedAnswer of selectedAnswers) user.answers.add(selectedAnswer);
-				users.set(ticket.owner_id, user);
+				selectedAnswers.push(
+					...addon.options
+						.filter((option) => answer.selected_options.includes(option.idx))
+						.map((option) => localize(option.name))
+				);
+				if (answer.selected_text.trim()) selectedAnswers.push(answer.selected_text.trim());
 			}
+			if (selectedAnswers.length)
+				rows.push([
+					ticket.owner_name,
+					ticket.owner_id,
+					localize(kind.ticket_kind_name),
+					selectedAnswers.join(' | ')
+				]);
 		}
-		const csv = [
-			[m.csv_name(), m.user_id(), m.csv_addon_options()].map(csvCell).join(','),
-			...[...users.entries()]
-				.sort((left, right) =>
-					userLabel(left[0], left[1].name).localeCompare(userLabel(right[0], right[1].name))
-				)
-				.map(([userId, user]) =>
-					[user.name, userId, [...user.answers].join(' | ')].map(csvCell).join(',')
-				)
-		].join('\r\n');
+		rows.sort((left, right) => left[0].localeCompare(right[0]) || left[1].localeCompare(right[1]));
+		const csv = [[m.csv_name(), m.user_id(), m.ticket_kind(), m.csv_addon_options()], ...rows]
+			.map((row) => row.map(csvCell).join(','))
+			.join('\r\n');
 		downloadCsv(csv, `${fileSlug(addonName) || 'addon'}-users.csv`);
 	}
 

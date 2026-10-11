@@ -32,22 +32,24 @@
 		void auth.initialize();
 	});
 
+	async function loadAdminAccess(): Promise<void> {
+		adminAccessError = null;
+		try {
+			const me = await getMe();
+			const storedLocale = supportedLocale(me.language);
+			if (storedLocale && storedLocale !== getLocale()) {
+				await persistBrowserLocale(storedLocale);
+				return;
+			}
+			hasAdminGroup = me.admin_group_ids.length > 0;
+		} catch (cause) {
+			adminAccessError = frontendError(cause) ?? m.error_title();
+		}
+	}
+
 	$effect(() => {
-		if (auth.status === 'authenticated') {
-			void (async () => {
-				try {
-					const me = await getMe();
-					const storedLocale = supportedLocale(me.language);
-					if (storedLocale && storedLocale !== getLocale()) {
-						await persistBrowserLocale(storedLocale);
-						return;
-					}
-					hasAdminGroup = me.admin_group_ids.length > 0;
-				} catch (cause) {
-					adminAccessError = frontendError(cause) ?? m.error_title();
-				}
-			})();
-		} else {
+		if (auth.status === 'authenticated') void loadAdminAccess();
+		else {
 			hasAdminGroup = null;
 			adminAccessError = null;
 		}
@@ -68,6 +70,11 @@
 </script>
 
 <svelte:head><title>{m.app_name()}</title></svelte:head>
+
+<svelte:window
+	ononline={() => {
+		if (auth.status === 'authenticated') void loadAdminAccess();
+	}} />
 
 <WillowDark>
 	{#if callbackPage}
@@ -107,8 +114,14 @@
 		<main class="login-stage">
 			<section class="login-card">
 				<div class="brand-mark"><Users size={30} /></div>
-				<h1>{m.no_admin_access_title()}</h1>
+				<h1>{adminAccessError ? m.error_title() : m.no_admin_access_title()}</h1>
 				<p class="error-banner" role="alert">{adminAccessError ?? m.no_admin_groups()}</p>
+				{#if adminAccessError}
+					<Button
+						type="primary block"
+						text={m.try_again()}
+						onclick={() => void loadAdminAccess()} />
+				{/if}
 				<Button type="secondary block" text={m.logout()} onclick={() => void auth.logout()} />
 			</section>
 		</main>
