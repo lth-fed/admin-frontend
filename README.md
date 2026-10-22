@@ -75,9 +75,15 @@ Add the explanation key to both `messages/en.json` and `messages/sv.json`. Keepi
 at the call site makes fields and buttons easy to document incrementally without a separate
 registry.
 
-## Build and push production images
+## Build and push images
 
-Run `./build-push.sh 0.0.1-alpha.2`.
+Run `./build-push.sh 0.0.1-alpha.2`. It pushes two images:
+
+- **Production** (`registry.esek.se/esek`) — built with the production API hosts. This is what the
+  deploy host pulls (`compose.yaml`).
+- **Development** (`esekmacapar/fed-admin-frontend` on Docker Hub) — built in dev mode, so the
+  bundle talks to `localhost:8000` and `localhost:8001`. This is what the local development stacks
+  run (see `compose.frontend.yaml` in the backend repo), so devs never have to build locally.
 
 No production `.env` file or secrets are needed for build.
 
