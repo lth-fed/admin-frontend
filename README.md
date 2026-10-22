@@ -1,3 +1,5 @@
+This is completely vibe coded...
+
 # Teknologappen admin frontend
 
 Svelte 5 administration UI for Minilith. Authentication uses the fed-auth OpenID Connect
