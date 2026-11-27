@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { Group, PurchasedTicket, TicketKind } from '$lib/api/types';
+	import type { Group, PurchasedTicket, PurchaseKind } from '$lib/api/types';
 	import PurchaseItemCell from '$lib/components/PurchaseItemCell.svelte';
+	import PurchaseRefundCell from '$lib/components/PurchaseRefundCell.svelte';
 	import { kronor, localize } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { Grid, WillowDark } from '@svar-ui/svelte-grid';
@@ -11,12 +12,14 @@
 		purchases,
 		kinds,
 		groups = [],
-		view = 'buyers'
+		view = 'buyers',
+		onRefund
 	}: {
 		purchases: PurchasedTicket[];
-		kinds: TicketKind[];
+		kinds: PurchaseKind[];
 		groups?: Group[];
 		view?: 'buyers' | 'breakdown' | 'memberships';
+		onRefund?: (purchaseId: string, message?: string) => Promise<void>;
 	} = $props();
 
 	const kindsById = $derived(new Map(kinds.map((kind) => [kind.ticket_kind_id, kind])));
@@ -42,7 +45,10 @@
 					{ id: 'type', header: m.purchase_type(), flexgrow: 1, width: 130 },
 					{ id: 'ticketKind', header: m.ticket_kind(), flexgrow: 1, width: 160 },
 					{ id: 'count', header: m.purchase_count(), width: 100 },
-					{ id: 'total', header: m.purchase_total(), width: 130 }
+					{ id: 'total', header: m.purchase_total(), width: 130 },
+					...(view === 'buyers' && onRefund
+						? [{ id: 'refund', header: m.refund(), width: 130, cell: PurchaseRefundCell }]
+						: [])
 				]
 	);
 
@@ -79,7 +85,7 @@
 		);
 	}
 
-	function ticketChildren(ticket: PurchasedTicket, kind: TicketKind): IRow[] {
+	function ticketChildren(ticket: PurchasedTicket, kind: PurchaseKind): IRow[] {
 		return ticket.addons.flatMap((answer) => {
 			const addon = kind.available_addons.find((item) => item.id === answer.addon_id);
 			if (!addon) return [];
@@ -130,6 +136,9 @@
 							type: m.base_ticket(),
 							count: 1,
 							total: kronor(purchasePrice(ticket)),
+							purchaseId: ticket.id,
+							refunded: ticket.refunded,
+							refund: onRefund,
 							open: false,
 							data: ticketChildren(ticket, kind)
 						}
@@ -150,6 +159,8 @@
 		const addons = new SvelteMap<string, AddonBreakdown>();
 
 		for (const ticket of purchases) {
+			// Refunded purchases are invalid; keep them visible only in the buyer list.
+			if (ticket.refunded) continue;
 			const kind = kindsById.get(ticket.ticket_kind_id);
 			if (!kind) continue;
 			const base = baseKinds.get(kind.ticket_kind_id) ?? {
@@ -370,6 +381,7 @@
 		const groupsById = new Map(groups.map((group) => [group.id, group]));
 		const ownersByGroupId = new SvelteMap<string, SvelteMap<string, true>>();
 		for (const purchase of purchases) {
+			if (purchase.refunded) continue;
 			for (const groupId of new Set(purchase.owner_memberships)) {
 				if (!groupsById.has(groupId)) continue;
 				const owners = ownersByGroupId.get(groupId) ?? new SvelteMap<string, true>();

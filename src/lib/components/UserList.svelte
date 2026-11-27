@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AdminUser } from '$lib/api/types';
+	import { noAutofill } from '$lib/no-autofill';
 	import * as m from '$lib/paraglide/messages';
 	import { Combo } from '@svar-ui/svelte-core';
 	import type { Component, Snippet } from 'svelte';
@@ -19,11 +20,14 @@
 		suggestions = [],
 		allowEmailInvite = false,
 		allowLuId = false,
+		readonly = false,
 		addLabel = m.user_id(),
 		addText = m.add(),
 		removeText = m.remove(),
 		onadd,
 		onremove,
+		/** Extra content per item, e.g. a membership expiry. */
+		detail,
 		...rest
 	}: {
 		title: string;
@@ -32,11 +36,14 @@
 		suggestions?: AdminUser[];
 		allowEmailInvite?: boolean;
 		allowLuId?: boolean;
+		/** Shows the list without the add form or remove buttons. */
+		readonly?: boolean;
 		addLabel?: string;
 		addText?: string;
 		removeText?: string;
 		onadd: (value: string) => Promise<void>;
 		onremove?: (value: string) => Promise<void>;
+		detail?: Snippet<[{ user_id: string; name?: string; until?: string | null }]>;
 	} & HTMLAttributes<EventTarget> = $props();
 	let value = $state('');
 	let query = $state('');
@@ -105,33 +112,34 @@
 		{title}
 		{#if count !== undefined}<span class="pill">{count}</span>{/if}
 	</h3>
-	<div class="toolbar" oninput={captureQuery}>
-		<label class="field" style="flex: 1">
-			<span>{addLabel}</span>
-			<UserCombo bind:value options={comboOptions} clear>
-				{#snippet children({ option })}
-					<div class="combo-user">
-						<strong
-							>{option.createUserId
-								? m.add_user_suggestion({ id: option.createUserId })
-								: (option.user.name ?? option.id)}</strong
-						><code>{option.id}</code>
-					</div>
-				{/snippet}
-			</UserCombo>
-		</label><button
-			class="button-link secondary"
-			type="button"
-			disabled={busy || !trimmedValue}
-			onclick={() => void add()}>{addText}</button>
-	</div>
+	{#if !readonly}<div class="toolbar" oninput={captureQuery}>
+			<label class="field" style="flex: 1" use:noAutofill>
+				<span>{addLabel}</span>
+				<UserCombo bind:value options={comboOptions} clear>
+					{#snippet children({ option })}
+						<div class="combo-user">
+							<strong
+								>{option.createUserId
+									? m.add_user_suggestion({ id: option.createUserId })
+									: (option.user.name ?? option.id)}</strong
+							><code>{option.id}</code>
+						</div>
+					{/snippet}
+				</UserCombo>
+			</label><button
+				class="button-link secondary"
+				type="button"
+				disabled={busy || !trimmedValue}
+				onclick={() => void add()}>{addText}</button>
+		</div>{/if}
 	{#if items.length === 0}<p class="muted">{m.empty()}</p>{:else}<ul class="list">
 			{#each items as item (userId(item))}<li>
 					<div class="list-main">
 						{#if userName(item)}<strong>{userName(item)}</strong>{/if}
 						<code>{userId(item)}</code>
+						{#if detail}{@render detail(typeof item === 'string' ? { user_id: item } : item)}{/if}
 					</div>
-					{#if onremove}<button
+					{#if onremove && !readonly}<button
 							class="button-link secondary danger-button"
 							type="button"
 							onclick={() => void onremove?.(userId(item))}>{removeText}</button

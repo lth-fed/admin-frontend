@@ -28,8 +28,8 @@
 		path: '',
 		name: { sv: '', en: '' },
 		description: { sv: '', en: '' },
-		limit_membership_visibility: false,
 		propagate_member_visibility_access: false,
+		parent_members_can_join: false,
 		logo_id: ''
 	});
 	const formDirty = $derived(formSnapshot !== '' && serializeGroup(form) !== formSnapshot);
@@ -59,8 +59,8 @@
 				path: `${parent.path}.`,
 				name: { sv: '', en: '' },
 				description: { sv: '', en: '' },
-				limit_membership_visibility: false,
-				propagate_member_visibility_access: false,
+				propagate_member_visibility_access: parent.propagate_member_visibility_access,
+				parent_members_can_join: parent.parent_members_can_join,
 				logo_id: parent.logo_id
 			};
 			logoUrl = parent.logo_url;
@@ -251,12 +251,7 @@
 							aria-invalid={invalidField === m.path()}
 							bind:value={form.path} />
 					</label>
-					<label class="switch-field">
-						<Switch
-							value={form.limit_membership_visibility}
-							onchange={({ value }) => (form.limit_membership_visibility = value)} />
-						<span>{m.limit_visibility()}</span>
-					</label>
+					<label class="switch-field"> </label>
 					<p class="muted">{m.limit_visibility_help()}</p>
 					<label class="switch-field">
 						<Switch

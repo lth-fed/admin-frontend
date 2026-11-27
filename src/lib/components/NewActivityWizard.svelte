@@ -10,6 +10,7 @@
 	} from '$lib/activity-tabs';
 	import { getMe, inviteActivityHost, listGroupTree, saveActivity } from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
+	import { rememberActiveGroup, resolveActiveGroup } from '$lib/active-group';
 	import type { Group, PutActivity } from '$lib/api/types';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
@@ -18,7 +19,6 @@
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import { cropActivityImage } from '$lib/crop-image';
 	import * as m from '$lib/paraglide/messages';
-	import { UNLIMITED_TICKETS } from '$lib/ticket-presets';
 	import { toasts } from '$lib/toasts.svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 	import { parseCoordinate } from '$lib/coordinates';
@@ -60,7 +60,7 @@
 	let activity = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
-		creator_id: '',
+		sales_target_group_id: '',
 		title: { sv: '', en: '' },
 		description: { sv: '', en: '' },
 		location: { name: { sv: '', en: '' }, directions: { sv: '', en: '' }, url: '' },
@@ -69,7 +69,8 @@
 		image_id: '',
 		is_hidden: true,
 		is_hidden_for_other_admins: false,
-		max_tickets: UNLIMITED_TICKETS,
+		// One ticket per person by default (the server default too).
+		max_tickets_per_user: 1,
 		host_ids: []
 	});
 	const contactValue = $derived(activity.responsible_contact.replace(/^(mailto:|tel:)/, ''));
@@ -111,7 +112,9 @@
 			const [me, tree] = await Promise.all([getMe(), listGroupTree()]);
 			groups = tree;
 			adminGroupIds = me.admin_group_ids;
-			if (adminGroupIds.length === 1) activity.creator_id = adminGroupIds[0];
+			// The creating group is also the activity's primary host.
+			const activeGroup = resolveActiveGroup('activities', tree, me.admin_group_ids);
+			if (activeGroup) activity.sales_target_group_id = activeGroup;
 			activity.responsible_name = me.name;
 			if (me.id.startsWith('email:')) activity.responsible_contact = `mailto:${me.id.slice(6)}`;
 			savedWizardSnapshot = serializeWizard();
@@ -133,7 +136,7 @@
 		error = null;
 		invalidField = null;
 		if (tab === 'details') {
-			if (!activity.creator_id)
+			if (!activity.sales_target_group_id)
 				return showError(`${m.creator()}: ${m.required_fields()}`, m.creator());
 			if (new Date(activity.time_end) <= new Date(activity.time_start))
 				return showError(m.end_after_start(), m.end());
@@ -163,6 +166,12 @@
 	}
 
 	function updateActivity(value: PutActivity): void {
+		if (
+			value.sales_target_group_id &&
+			value.sales_target_group_id !== activity.sales_target_group_id
+		) {
+			rememberActiveGroup('activities', value.sales_target_group_id);
+		}
 		activity = value;
 	}
 
@@ -284,7 +293,7 @@
 					</div>
 					<GroupTreePicker
 						title={m.hosts()}
-						groups={groups.filter((group) => group.id !== activity.creator_id)}
+						groups={groups.filter((group) => group.id !== activity.sales_target_group_id)}
 						selectedIds={organizerIds}
 						onchange={(ids) => {
 							organizerIds = ids;

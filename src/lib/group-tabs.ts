@@ -1,4 +1,11 @@
-export const groupTabIds = ['details', 'notifications', 'members', 'administrators'] as const;
+export const groupTabIds = [
+	'details',
+	'members',
+	'administrators',
+	'sales',
+	'tags',
+	'readers'
+] as const;
 export type GroupTab = (typeof groupTabIds)[number];
 
 function isGroupTab(value: string | null): value is GroupTab {

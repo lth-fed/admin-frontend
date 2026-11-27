@@ -83,11 +83,6 @@
 	align-items: end;
 	gap: 10px;
 }
-.notification-editor-title {
-	margin-top: 24px;
-	padding-top: 20px;
-	border-top: 1px solid #303531;
-}
 .option-panel > summary {
 	display: flex;
 	align-items: center;

@@ -31,6 +31,13 @@ export function dateTime(value: string | Date): string {
 	}).format(new Date(value));
 }
 
+/** Weekday and day, for calendar entries that are split into one block per day. */
+export function shortDate(value: string | Date): string {
+	return new Intl.DateTimeFormat(getLocale(), { weekday: 'short', day: 'numeric' }).format(
+		new Date(value)
+	);
+}
+
 export function kronor(valueInOre: number): string {
 	return new Intl.NumberFormat(getLocale(), {
 		style: 'currency',

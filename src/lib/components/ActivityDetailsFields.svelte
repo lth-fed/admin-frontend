@@ -102,16 +102,16 @@
 			<span>{m.creator()}</span>
 			{#if creatorReadonly}
 				<div class="readonly-value">
-					<strong>{creatorName || value.creator_id}</strong>
+					<strong>{creatorName || value.sales_target_group_id}</strong>
 					<small>{m.creator_immutable()}</small>
 				</div>
 			{:else}
 				<Select
-					value={value.creator_id}
+					value={value.sales_target_group_id}
 					options={creatorOptions}
 					disabled={creatorGroups.length <= 1}
-					onchange={({ value: creator_id }) =>
-						onchange({ ...value, creator_id: String(creator_id) })} />
+					onchange={({ value: sales_target_group_id }) =>
+						onchange({ ...value, sales_target_group_id: String(sales_target_group_id) })} />
 			{/if}
 		</div>
 		<div

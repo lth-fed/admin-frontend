@@ -7,7 +7,7 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"api:generate:minilith": "openapi-typescript http://localhost:8000/v0/spec.json -o src/lib/api/generated/minilith.d.ts && prettier --write src/lib/api/generated/minilith.d.ts",
+		"api:generate:minilith": "openapi-typescript http://localhost:8000/spec.json -o src/lib/api/generated/minilith.d.ts && prettier --write src/lib/api/generated/minilith.d.ts",
 		"api:generate:auth": "openapi-typescript http://localhost:8001/oidc/v1/spec.json -o src/lib/api/generated/auth.d.ts && prettier --write src/lib/api/generated/auth.d.ts",
 		"api:generate": "pnpm run api:generate:minilith && pnpm run api:generate:auth",
 		"api:rebuild": "pnpm run api:generate",
@@ -25,6 +25,7 @@
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
 		"@tailwindcss/vite": "^4.3.0",
 		"@types/node": "^24",
+		"@types/qrcode": "^1.5.6",
 		"@types/sanitize-html": "^2.16.1",
 		"eslint": "^10.4.1",
 		"eslint-config-prettier": "^10.1.8",
@@ -46,11 +47,14 @@
 		"@svar-ui/svelte-calendar": "^2.6.0",
 		"@svar-ui/svelte-core": "^2.6.0",
 		"@svar-ui/svelte-grid": "^2.7.1",
+		"barcode-detector": "^3.2.4",
 		"carta-md": "^4.11.2",
 		"cropperjs": "^2.2.0",
 		"github-markdown-css": "^5.9.0",
 		"oidc-client-ts": "^3.5.0",
 		"openapi-fetch": "^0.17.0",
-		"sanitize-html": "^2.17.7"
+		"qrcode": "^1.5.4",
+		"sanitize-html": "^2.17.7",
+		"zxing-wasm": "^3.1.7"
 	}
 }

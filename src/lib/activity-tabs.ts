@@ -1,10 +1,4 @@
-export const activityTabIds = [
-	'details',
-	'logistics',
-	'tickets',
-	'sales',
-	'notifications'
-] as const;
+export const activityTabIds = ['details', 'logistics', 'tickets', 'sales', 'products'] as const;
 export type ActivityTab = (typeof activityTabIds)[number];
 
 function isActivityTab(value: string | null): value is ActivityTab {

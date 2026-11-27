@@ -3,39 +3,50 @@
 	import { resolve } from '$app/paths';
 	import { onMount, tick } from 'svelte';
 	import {
+		deleteAddon,
 		getActivity,
 		getMe,
-		getTicketKind,
-		listActivityAddons,
-		getActivityTicketKinds,
-		saveActivityAddon,
-		saveTicketKind,
-		deleteActivityAddon
+		getProduct,
+		listActivityProducts,
+		listAddons,
+		saveAddon,
+		saveProduct
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type { PutTicketKind, TicketKind } from '$lib/api/types';
+	import type { AdminProduct, AvailableAddon } from '$lib/api/types';
 	import { validAddons } from '$lib/addon-validation';
 	import AddonFields from './AddonFields.svelte';
-	import { ticketKindBody } from '$lib/ticket-kind';
+	import { linkedAddons, productBody } from '$lib/product';
 	import { toasts } from '$lib/toasts.svelte';
 	import { localize, sortByLocalizedName } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { ArrowLeft, Trash2 } from '@lucide/svelte';
 
-	let { id, activityId }: { id: string | null; activityId: string } = $props();
-	let addon = $state<PutTicketKind['addons'][number] | null>(null);
+	let {
+		id,
+		activityId = '',
+		productId = ''
+	}: { id: string | null; activityId?: string; productId?: string } = $props();
+	/** Add-ons belong to the activity (tickets) or to the product (item products). */
+	const owner = $derived(activityId ? { activityId } : { productId });
+	const backUrl = $derived(
+		activityId
+			? resolve('/activities/[id]?tab=tickets', { id: activityId })
+			: productId
+				? resolve('/products/[id]', { id: productId })
+				: resolve('/')
+	);
+	let addon = $state<AvailableAddon | null>(null);
+	let availableAddons = $state<AvailableAddon[]>([]);
 	let loading = $state(true);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let canEdit = $state(false);
 	let locked = $state(false);
 	let assigned = $state(false);
-	let ticketKinds = $state<TicketKind[]>([]);
-	const sortedTicketKinds = $derived(
-		sortByLocalizedName(ticketKinds, (kind) => kind.ticket_kind_name)
-	);
+	let products = $state<AdminProduct[]>([]);
+	const sortedProducts = $derived(sortByLocalizedName(products, (product) => product.name));
 	let selectedKindIds = $state<string[]>([]);
-	let activityName = $state('');
 	let showErrors = $state(false);
 	let snapshot = $state('');
 	let allowNavigation = $state(false);
@@ -55,23 +66,28 @@
 
 	async function load(): Promise<void> {
 		try {
-			if (!activityId) throw new Error(m.not_found());
-			const [activity, me, addons, kinds] = await Promise.all([
-				getActivity(activityId),
-				getMe(),
-				listActivityAddons(activityId),
-				getActivityTicketKinds(activityId)
-			]);
-			canEdit = me.admin_group_ids.some(
-				(groupId) =>
-					groupId === activity.creator_id || activity.hosts.some((host) => host.id === groupId)
-			);
-			activityName = localize(activity.title);
-			const linked = kinds.filter((kind) => kind.available_addons.some((item) => item.id === id));
-			ticketKinds = kinds.filter((kind) => !kind.for_visibility);
-			selectedKindIds = linked.map((kind) => kind.ticket_kind_id);
+			if (!activityId && !productId) throw new Error(m.not_found());
+			const [me, addons] = await Promise.all([getMe(), listAddons(owner)]);
+			availableAddons = addons;
+			let productList: AdminProduct[];
+			if (activityId) {
+				const activity = await getActivity(activityId);
+				canEdit = me.admin_group_ids.some(
+					(groupId) =>
+						groupId === activity.sales_target_group_id ||
+						activity.hosts.some((host) => host.id === groupId)
+				);
+				productList = await listActivityProducts(activityId);
+			} else {
+				const product = await getProduct(productId);
+				canEdit = me.admin_group_ids.includes(product.group_id);
+				productList = [product];
+			}
+			const linked = productList.filter((product) => product.addon_ids.includes(id ?? ''));
+			products = productList.filter((product) => product.kind !== 'activityvisibility');
+			selectedKindIds = linked.map((product) => product.id);
 			assigned = linked.length > 0;
-			locked = linked.some((kind) => kind.has_been_purchased);
+			locked = linked.some((product) => product.been_purchased);
 			addon = id
 				? (addons.find((item) => item.id === id) ?? null)
 				: {
@@ -93,9 +109,10 @@
 
 	async function save(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		if (!addon || !canEdit || saving) return;
+		const currentAddon = $state.snapshot(addon);
+		if (!currentAddon || !canEdit || saving) return;
 		showErrors = true;
-		if (!validAddons([addon])) {
+		if (!validAddons([currentAddon])) {
 			error = m.ticket_addons_invalid();
 			await tick();
 			const invalid = formElement?.querySelector<HTMLElement>(
@@ -108,34 +125,29 @@
 		saving = true;
 		error = null;
 		try {
-			await saveActivityAddon(activityId, $state.snapshot(addon));
-			for (const kind of ticketKinds) {
-				const selected = selectedKindIds.includes(kind.ticket_kind_id);
-				if (selected === kind.available_addons.some((item) => item.id === addon!.id)) continue;
-				const current = await getTicketKind(kind.ticket_kind_id);
-				const addons = current.available_addons.filter((item) => item.id !== addon!.id);
-				if (selected) addons.push($state.snapshot(addon));
-				await saveTicketKind(
-					kind.ticket_kind_id,
-					{
-						...ticketKindBody(current),
-						addons
-					},
-					{ syncTransfers: false, notify: false }
+			await saveAddon(owner, currentAddon);
+			for (const product of products) {
+				const selected = selectedKindIds.includes(product.id);
+				if (selected === product.addon_ids.includes(currentAddon.id)) continue;
+				const current = await getProduct(product.id);
+				const linked = linkedAddons(current, availableAddons).filter(
+					(item) => item.id !== currentAddon.id
 				);
-				kind.available_addons = addons;
-				assigned = ticketKinds.some((item) =>
-					item.available_addons.some((entry) => entry.id === addon!.id)
-				);
+				if (selected) linked.push(currentAddon);
+				await saveProduct(product.id, productBody(current, linked), { notify: false });
+				product.addon_ids = linked.map((entry) => entry.id);
+				assigned = products.some((item) => item.addon_ids.includes(currentAddon.id));
 			}
 			snapshot = serialize();
 			toasts.show('success', m.backend_success());
 			if (!id) {
 				allowNavigation = true;
-				await goto(
-					resolve(`/addons/[id]?activity=${encodeURIComponent(activityId)}`, { id: addon.id }),
-					{ replaceState: true }
-				);
+				const query = activityId
+					? `activity=${encodeURIComponent(activityId)}`
+					: `product=${encodeURIComponent(productId)}`;
+				await goto(resolve(`/addons/[id]?${query}`, { id: currentAddon.id }), {
+					replaceState: true
+				});
 			}
 		} catch (cause) {
 			allowNavigation = false;
@@ -149,9 +161,9 @@
 		if (!id || !canEdit || assigned || saving || !confirm(m.delete_addon_confirm())) return;
 		saving = true;
 		try {
-			await deleteActivityAddon(activityId, id);
+			await deleteAddon(id);
 			allowNavigation = true;
-			await goto(resolve('/activities/[id]?tab=tickets', { id: activityId }));
+			await goto(backUrl);
 		} catch (cause) {
 			allowNavigation = false;
 			error = frontendError(cause) ?? m.error_title();
@@ -170,10 +182,7 @@
 				: ''}
 		</h1>
 	</div>
-	<a
-		class="button-link secondary"
-		href={activityId ? resolve('/activities/[id]?tab=tickets', { id: activityId }) : resolve('/')}
-		><ArrowLeft size={18} /> {m.back()}</a>
+	<a class="button-link secondary" href={backUrl}><ArrowLeft size={18} /> {m.back()}</a>
 </header>
 {#if error}<p class="error-banner" role="alert">{error}</p>{/if}
 {#if loading}<div class="center-stage">
@@ -190,21 +199,23 @@
 			{showErrors}
 			onchange={(value) => (addon = value)} />
 		<section class="card card-pad stack">
-			<h2 class="section-title">{m.addon_ticket_kinds()}</h2>
-			<p class="muted">{activityName}</p>
-			<p class="muted">{m.addon_assignment_help()}</p>
-			{#each sortedTicketKinds as kind (kind.ticket_kind_id)}
+			<h2 class="section-title">
+				{activityId ? m.addon_ticket_kinds() : m.addon_products()}
+			</h2>
+			<p class="muted">
+				{activityId ? m.addon_assignment_help() : m.addon_products_help()}
+			</p>
+			{#each sortedProducts as product (product.id)}
 				<label class="switch-field">
 					<input
 						type="checkbox"
-						checked={selectedKindIds.includes(kind.ticket_kind_id)}
-						disabled={!canEdit || saving || kind.has_been_purchased}
+						checked={selectedKindIds.includes(product.id)}
+						disabled={!canEdit || saving}
 						onchange={(event) => {
-							selectedKindIds = selectedKindIds.filter((kindId) => kindId !== kind.ticket_kind_id);
-							if (event.currentTarget.checked)
-								selectedKindIds = [...selectedKindIds, kind.ticket_kind_id];
+							selectedKindIds = selectedKindIds.filter((kindId) => kindId !== product.id);
+							if (event.currentTarget.checked) selectedKindIds = [...selectedKindIds, product.id];
 						}} />
-					<span>{localize(kind.ticket_kind_name)}</span>
+					<span>{localize(product.name)}</span>
 				</label>
 			{:else}<p class="empty-state">{m.empty()}</p>{/each}
 		</section>

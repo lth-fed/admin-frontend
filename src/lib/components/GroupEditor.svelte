@@ -5,14 +5,14 @@
 	import {
 		addAdmin,
 		addGroupRelation,
+		createApiKey,
+		createExternalUser,
 		addMember,
 		approveMemberRequest,
 		deleteGroup,
-		deleteGroupNotification,
 		denyMemberRequest,
 		getMe,
 		listAdmins,
-		listGroupNotifications,
 		listGroupRelations,
 		listGroupTree,
 		listMemberRequests,
@@ -20,30 +20,26 @@
 		removeAdmin,
 		removeGroupRelation,
 		removeMember,
-		saveGroup,
-		saveGroupNotification
+		saveGroup
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
-	import type {
-		AdminUser,
-		Group,
-		GroupNotification,
-		PutGroup,
-		PutNotification
-	} from '$lib/api/types';
+	import type { AdminMember, AdminUser, Group, PutGroup } from '$lib/api/types';
 	import { loadVisibleMemberOptions } from '$lib/visible-members';
 	import { groupTabIndex, groupTabUrl, isGroupTabNavigation, type GroupTab } from '$lib/group-tabs';
 	import { dateTime, localize } from '$lib/i18n';
 	import LocalizedField from '$lib/components/LocalizedField.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
-	import NotificationFields from '$lib/components/NotificationFields.svelte';
-	import NotificationWarnings from '$lib/components/NotificationWarnings.svelte';
 	import RelationList from '$lib/components/RelationList.svelte';
 	import UserList from '$lib/components/UserList.svelte';
+	import SalesDevices from '$lib/components/SalesDevices.svelte';
+	import ExpirySelect from '$lib/components/ExpirySelect.svelte';
+	import GroupTags from '$lib/components/GroupTags.svelte';
+	import GroupReaders from '$lib/components/GroupReaders.svelte';
+	import GroupSales from '$lib/components/GroupSales.svelte';
 	import { uploadImage } from '$lib/image';
 	import * as m from '$lib/paraglide/messages';
 	import { toasts } from '$lib/toasts.svelte';
-	import { ArrowLeft, Pencil, Plus, Trash2 } from '@lucide/svelte';
+	import { ArrowLeft } from '@lucide/svelte';
 	import { Switch } from '@svar-ui/svelte-core';
 
 	let { id }: { id: string | null } = $props();
@@ -51,7 +47,9 @@
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let invalidField = $state<string | null>(null);
-	let members = $state<AdminUser[]>([]);
+	let members = $state<AdminMember[]>([]);
+	/** Expiry applied to the next member added; `null` means forever. */
+	let newMemberUntil = $state<string | null>(null);
 	let requests = $state<AdminUser[]>([]);
 	let admins = $state<AdminUser[]>([]);
 	let userSuggestions = $state<AdminUser[]>([]);
@@ -63,41 +61,35 @@
 	let adminGroupIds = $state<string[]>([]);
 	let directAdmin = $state(false);
 	let savedFormSnapshot = $state('');
-	let notifications = $state<GroupNotification[]>([]);
-	let notificationEditorOpen = $state(false);
-	let notificationId = $state<string | null>(null);
-	let notificationDraft = $state<PutNotification>(newNotificationDraft());
-	let savedNotificationSnapshot = $state('');
-	let notificationSaving = $state(false);
-	let deletingNotificationId = $state<string | null>(null);
 	let allowNavigation = $state(false);
+	let apiUserId = $state('');
+	let apiUserEmail = $state('');
+	let createdApiKey = $state<{ user_id: string; api_key: string } | null>(null);
+	let externalUserName = $state('');
+	let createdExternalUser = $state<string | null>(null);
 	let editorTab = $derived(groupTabIndex(page.url));
 	const editorTabs = new Map<GroupTab, string>([
 		['details', m.group_details()],
-		['notifications', m.scheduled_notifications()],
 		['members', m.members()],
-		['administrators', m.administrators()]
+		['administrators', m.administrators()],
+		['sales', m.sales()],
+		['tags', m.group_tags()],
+		['readers', m.readers()]
 	]);
 	let form = $state<PutGroup>({
 		path: '',
 		name: { sv: '', en: '' },
 		description: { sv: '', en: '' },
-		limit_membership_visibility: false,
 		propagate_member_visibility_access: false,
+		parent_members_can_join: false,
 		logo_id: ''
 	});
 	const mainFormDirty = $derived(
 		savedFormSnapshot !== '' && serializeGroup(form) !== savedFormSnapshot
 	);
-	const notificationDirty = $derived(
-		notificationEditorOpen &&
-			savedNotificationSnapshot !== '' &&
-			serializeNotification(notificationDraft) !== savedNotificationSnapshot
-	);
-	const hasUnsavedChanges = $derived(mainFormDirty || notificationDirty);
 
 	beforeNavigate(({ cancel, from, to, willUnload }) => {
-		if (!hasUnsavedChanges || allowNavigation) return;
+		if (!mainFormDirty || allowNavigation) return;
 		if (isGroupTabNavigation(from?.url ?? null, to?.url ?? null)) return;
 		if (willUnload) {
 			cancel();
@@ -140,21 +132,20 @@
 				path: group.path,
 				name: { ...group.name },
 				description: { ...group.description },
-				limit_membership_visibility: group.limit_membership_visibility,
 				propagate_member_visibility_access: group.propagate_member_visibility_access,
+				parent_members_can_join: group.parent_members_can_join,
 				logo_id: group.logo_id
 			};
 			savedFormSnapshot = serializeGroup(form);
 			originalPath = group.path;
 			logoUrl = group.logo_url;
 			if (directAdmin) {
-				[members, requests, admins, joiners, activityAdmins, notifications] = await Promise.all([
+				[members, requests, admins, joiners, activityAdmins] = await Promise.all([
 					listMembers(id),
 					listMemberRequests(id),
 					listAdmins(id),
 					listGroupRelations(id, 'joiner-groups'),
-					listGroupRelations(id, 'activity-admin-groups'),
-					listGroupNotifications(id)
+					listGroupRelations(id, 'activity-admin-groups')
 				]);
 			} else {
 				admins = await listAdmins(id);
@@ -168,93 +159,6 @@
 
 	function serializeGroup(value: PutGroup): string {
 		return JSON.stringify(value);
-	}
-
-	function newNotificationDraft(): PutNotification {
-		return {
-			title: { sv: '', en: '' },
-			content: { sv: '', en: '' },
-			send_at: new Date().toISOString()
-		};
-	}
-
-	function serializeNotification(value: PutNotification): string {
-		return JSON.stringify(value);
-	}
-
-	function mayReplaceNotificationDraft(): boolean {
-		return !notificationDirty || confirm(m.discard_notification_changes());
-	}
-
-	function newNotification(): void {
-		if (!mayReplaceNotificationDraft()) return;
-		notificationId = crypto.randomUUID();
-		notificationDraft = newNotificationDraft();
-		savedNotificationSnapshot = serializeNotification(notificationDraft);
-		notificationEditorOpen = true;
-	}
-
-	function editNotification(notification: GroupNotification): void {
-		if (notification.sent) return;
-		if (!mayReplaceNotificationDraft()) return;
-		notificationId = notification.id;
-		notificationDraft = {
-			title: { ...notification.title },
-			content: { ...notification.content },
-			send_at: notification.send_at
-		};
-		savedNotificationSnapshot = serializeNotification(notificationDraft);
-		notificationEditorOpen = true;
-	}
-
-	function closeNotificationEditor(): void {
-		if (!mayReplaceNotificationDraft()) return;
-		notificationEditorOpen = false;
-		notificationId = null;
-		savedNotificationSnapshot = '';
-	}
-
-	async function submitNotification(): Promise<void> {
-		if (!id || !notificationId || notificationSaving) return;
-		if (!notificationDraft.content.sv?.trim() || !notificationDraft.content.en?.trim()) {
-			error = `${m.notification()}: ${m.required_fields()}`;
-			toasts.show('error', error);
-			return;
-		}
-		notificationSaving = true;
-		error = null;
-		try {
-			await saveGroupNotification(id, notificationId, notificationDraft);
-			notifications = await listGroupNotifications(id);
-			notificationEditorOpen = false;
-			notificationId = null;
-			savedNotificationSnapshot = '';
-			toasts.show('success', m.backend_success());
-		} catch (cause) {
-			error = frontendError(cause);
-		} finally {
-			notificationSaving = false;
-		}
-	}
-
-	async function removeNotification(notification: GroupNotification): Promise<void> {
-		if (notification.sent || !id || !confirm(m.delete_notification_confirm())) return;
-		deletingNotificationId = notification.id;
-		error = null;
-		try {
-			await deleteGroupNotification(id, notification.id);
-			notifications = notifications.filter((item) => item.id !== notification.id);
-			if (notificationId === notification.id) {
-				notificationEditorOpen = false;
-				notificationId = null;
-				savedNotificationSnapshot = '';
-			}
-			toasts.show('success', m.backend_success());
-		} catch (cause) {
-			error = frontendError(cause);
-		} finally {
-			deletingNotificationId = null;
-		}
 	}
 
 	function validPath(path: string): boolean {
@@ -362,6 +266,17 @@
 		}
 	}
 
+	async function setMembershipUntil(memberId: string, until: string | null): Promise<void> {
+		if (!id) return;
+		error = null;
+		try {
+			await addMember(id, memberId, until);
+			await refreshPeople();
+		} catch (cause) {
+			error = frontendError(cause);
+		}
+	}
+
 	async function refreshPeople(): Promise<void> {
 		if (id)
 			[members, requests, admins] = await Promise.all([
@@ -399,6 +314,41 @@
 			await goto(resolve('/groups'));
 		} catch (cause) {
 			allowNavigation = false;
+			error = frontendError(cause);
+		}
+	}
+
+	async function createApiUser(): Promise<void> {
+		if (!id || !apiUserId.trim()) return;
+		error = null;
+		try {
+			createdApiKey = await createApiKey({
+				id: apiUserId.trim(),
+				email: apiUserEmail.trim() || undefined,
+				group_ids: [id]
+			});
+			apiUserId = '';
+			apiUserEmail = '';
+			toasts.show('success', m.backend_success());
+			await refreshPeople();
+		} catch (cause) {
+			error = frontendError(cause);
+		}
+	}
+
+	async function createExternalUserForGroup(): Promise<void> {
+		if (!id || !externalUserName.trim()) return;
+		error = null;
+		try {
+			const created = await createExternalUser({
+				name: externalUserName.trim(),
+				group_ids: [id]
+			});
+			createdExternalUser = created.user_id;
+			externalUserName = '';
+			toasts.show('success', m.backend_success());
+			await refreshPeople();
+		} catch (cause) {
 			error = frontendError(cause);
 		}
 	}
@@ -472,12 +422,7 @@
 								required
 								aria-invalid={invalidField === m.path()}
 								bind:value={form.path} /></label>
-						<label class="switch-field">
-							<Switch
-								value={form.limit_membership_visibility}
-								onchange={({ value }) => (form.limit_membership_visibility = value)} />
-							<span>{m.limit_visibility()}</span>
-						</label>
+						<label class="switch-field"> </label>
 						<p class="muted">{m.limit_visibility_help()}</p>
 						<label class="switch-field">
 							<Switch
@@ -486,89 +431,26 @@
 							<span>{m.propagate_member_visibility()}</span>
 						</label>
 						<p class="muted">{m.propagate_member_visibility_help()}</p>
+						<label class="switch-field">
+							<Switch
+								value={form.parent_members_can_join}
+								onchange={({ value }) => (form.parent_members_can_join = value)} />
+							<span>{m.parent_members_can_join()}</span>
+						</label>
+						<p class="muted">{m.parent_members_can_join_help()}</p>
 					</div>
 				</details>
 			</section>
 		{/if}
-		{#if directAdmin && id && editorTab === 'notifications'}
-			<section class="card card-pad stack">
-				<div class="toolbar between">
-					<h2 class="section-title">{m.scheduled_notifications()}</h2>
-					<button class="button-link secondary" type="button" onclick={newNotification}>
-						<Plus size={16} />
-						{m.new_notification()}
-					</button>
-				</div>
-				<p class="warning-banner" role="note">{m.group_notification_recipients_warning()}</p>
-				{#if notifications.length === 0}
-					<p class="empty-state">{m.empty()}</p>
-				{:else}
-					<ul class="list">
-						{#each notifications as notification (notification.id)}
-							<li>
-								<div class="list-main">
-									<strong
-										>{[localize(notification.sender, ''), localize(notification.title, '')]
-											.filter((part) => part.trim())
-											.join(': ')}</strong>
-									<span
-										>{dateTime(notification.send_at)} · {notification.sent
-											? m.sent()
-											: m.not_sent()}</span>
-									<span>{localize(notification.content)}</span>
-								</div>
-								<div class="toolbar">
-									<button
-										class="icon-button"
-										type="button"
-										disabled={notification.sent}
-										aria-label={m.edit()}
-										onclick={() => editNotification(notification)}>
-										<Pencil size={16} />
-									</button>
-									<button
-										class="icon-button danger-button"
-										type="button"
-										disabled={notification.sent || deletingNotificationId === notification.id}
-										aria-label={m.delete()}
-										onclick={() => void removeNotification(notification)}>
-										<Trash2 size={16} />
-									</button>
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-				{#if notificationEditorOpen}
-					<div class="nested-card stack">
-						<h3 class="section-title">
-							{notifications.some((notification) => notification.id === notificationId)
-								? m.edit_notification()
-								: m.new_notification()}
-						</h3>
-						<div class="grid-2">
-							<NotificationFields
-								value={notificationDraft}
-								onchange={(value) => (notificationDraft = value)} />
-						</div>
-						<NotificationWarnings sendAt={notificationDraft.send_at} groupPath={form.path} />
-						<div class="toolbar">
-							<button
-								class="button-link"
-								type="button"
-								disabled={notificationSaving}
-								onclick={() => void submitNotification()}>
-								{notificationSaving ? m.saving() : m.save_notification()}
-							</button>
-							<button
-								class="button-link secondary"
-								type="button"
-								disabled={notificationSaving}
-								onclick={closeNotificationEditor}>{m.cancel()}</button>
-						</div>
-					</div>
-				{/if}
-			</section>
+		{#if id && editorTab === 'sales'}
+			<GroupSales groupId={id} />
+			<SalesDevices groupId={id} canEdit={directAdmin} />
+		{/if}
+		{#if directAdmin && id && editorTab === 'tags'}
+			<GroupTags groupId={id} />
+		{/if}
+		{#if id && editorTab === 'readers'}
+			<GroupReaders groupId={id} canEdit={directAdmin} />
 		{/if}
 		{#if directAdmin && id && editorTab === 'members'}<section class="card card-pad grid-2">
 				<RelationList
@@ -585,8 +467,31 @@
 					items={members}
 					suggestions={userSuggestions}
 					allowLuId
-					onadd={(userId) => action(() => addMember(id!, userId), refreshPeople)}
-					onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)} />
+					onadd={(userId) => action(() => addMember(id!, userId, newMemberUntil), refreshPeople)}
+					onremove={(userId) => action(() => removeMember(id!, userId), refreshPeople)}>
+					{#snippet detail(member)}
+						{#if member.user_id}
+							<details class="member-duration">
+								<summary>
+									{member.until
+										? `${m.membership_duration()}: ${dateTime(member.until)}`
+										: m.membership_no_end()}
+								</summary>
+								<ExpirySelect
+									label={m.membership_duration()}
+									allowNever
+									initial={member.until ?? null}
+									onchange={(until) => void setMembershipUntil(member.user_id, until)} />
+							</details>
+						{/if}
+					{/snippet}
+				</UserList>
+				<div class="member-duration-default">
+					<ExpirySelect
+						label={m.membership_duration_new()}
+						allowNever
+						onchange={(until) => (newMemberUntil = until)} />
+				</div>
 				<div>
 					<h2 class="section-title">
 						{m.member_requests()} <span class="pill">{requests.length}</span>
@@ -618,7 +523,28 @@
 						</ul>
 					{/if}
 				</div>
-			</section>{/if}
+			</section>
+
+			<section class="card card-pad stack">
+				<div>
+					<h2 class="section-title">{m.external_users()}</h2>
+					<p class="muted">{m.external_user_help()}</p>
+				</div>
+				<label class="field"
+					><span>{m.external_user_name()}</span>
+					<input type="text" bind:value={externalUserName} /></label>
+				<button
+					class="button-link"
+					type="button"
+					disabled={!externalUserName.trim()}
+					onclick={() => void createExternalUserForGroup()}>{m.create_external_user()}</button>
+				{#if createdExternalUser}
+					<p role="status">
+						{m.external_user_created()} <code class="mono">{createdExternalUser}</code>
+					</p>
+				{/if}
+			</section>
+		{/if}
 		{#if id && (!directAdmin || editorTab === 'administrators')}
 			<section class="card card-pad grid-2">
 				<UserList
@@ -642,6 +568,32 @@
 							() => removeGroupRelation(id!, 'activity-admin-groups', groupId),
 							refreshRelations
 						)} />
+			</section>
+			<section class="card card-pad stack">
+				<div>
+					<h2 class="section-title">{m.api_users()}</h2>
+					<p class="muted">{m.api_user_help()}</p>
+				</div>
+				<div class="grid-2">
+					<label class="field"
+						><span>{m.api_user_id()}</span>
+						<input type="text" bind:value={apiUserId} placeholder="integration-name" /></label>
+					<label class="field"
+						><span>{m.api_user_email()}</span>
+						<input type="email" bind:value={apiUserEmail} /></label>
+				</div>
+				<button
+					class="button-link"
+					type="button"
+					disabled={!apiUserId.trim()}
+					onclick={() => void createApiUser()}>{m.create_api_user()}</button>
+				{#if createdApiKey}
+					<p role="status">
+						{m.api_key_created()}
+						<code class="mono">{createdApiKey.user_id}</code>
+						<code class="mono">{createdApiKey.api_key}</code>
+					</p>
+				{/if}
 			</section>
 		{/if}
 		{#if directAdmin && editorTab === 'details'}<div class="editor-action-dock">

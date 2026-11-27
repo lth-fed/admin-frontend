@@ -8,6 +8,7 @@
 		optional = false,
 		error = false,
 		disabled = false,
+		suffix,
 		onchange
 	}: {
 		label: string;
@@ -15,6 +16,7 @@
 		optional?: boolean;
 		error?: boolean;
 		disabled?: boolean;
+		suffix?: string;
 		onchange: (value: number | undefined) => void;
 	} = $props();
 
@@ -74,7 +76,7 @@
 
 <label class="field money-field">
 	<span>{label}</span>
-	<div class:invalid class="money-input">
+	<div class:invalid class:per-unit={!!suffix} class="money-input">
 		<input
 			type="text"
 			inputmode="decimal"
@@ -88,7 +90,7 @@
 			onfocus={() => (focused = true)}
 			oninput={(event) => input(event.currentTarget)}
 			onblur={blur} />
-		<span class="currency" aria-hidden="true">{m.currency_suffix()}</span>
+		<span class="currency" aria-hidden="true">{suffix ?? m.currency_suffix()}</span>
 	</div>
 	{#if invalid}<small class="money-error">{m.money_input_invalid()}</small>{/if}
 </label>
@@ -101,6 +103,10 @@
 	.money-input input {
 		padding-right: 4rem;
 		font-variant-numeric: tabular-nums;
+	}
+
+	.money-input.per-unit input {
+		padding-right: 9rem;
 	}
 
 	.currency {
