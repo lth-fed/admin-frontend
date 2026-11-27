@@ -12,12 +12,12 @@ pnpm install
 pnpm dev
 ```
 
-The defaults point to Minilith on `http://localhost:8000/v0` and fed-auth on
-`http://localhost:8001`. Production defaults point to the Teknologappen services. Override them when
-needed:
+The defaults point to Minilith on `http://localhost:8000` and fed-auth on `http://localhost:8001`.
+Spec paths already include their version (`/v0/...`), so API URLs are bare origins — do not append
+`/v0`. Production defaults point to the Teknologappen services. Override them when needed:
 
 ```sh
-PUBLIC_MINILITH_API_URL=https://example.test/v0
+PUBLIC_MINILITH_API_URL=https://example.test
 PUBLIC_OIDC_AUTHORITY=https://auth-api.example.test
 PUBLIC_OIDC_CLIENT_ID=teknologappen
 ```

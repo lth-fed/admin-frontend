@@ -11,7 +11,7 @@
 	import { frontendError } from '$lib/api/client';
 	import type { ActivityHostInvite, BriefActivity, Group } from '$lib/api/types';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
-	import { createCalendarWords, dateTime, isoWeekNumber, localize } from '$lib/i18n';
+	import { createCalendarWords, dateTime, isoWeekNumber, localize, shortDate } from '$lib/i18n';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import {
@@ -120,7 +120,9 @@
 					id: `${activity.id}:${day.toISOString().slice(0, 10)}`,
 					start: segmentStart,
 					end: segmentEnd,
-					...base
+					...base,
+					// A multi-day activity becomes several blocks; label each with its own date.
+					text: `${base.text} · ${shortDate(segmentStart)}`
 				});
 			}
 			day.setDate(day.getDate() + 1);
@@ -332,7 +334,10 @@
 							>{m.host_invitation_group({
 								group: localize(invite.group_name, invite.group_path)
 							})}</span>
-						<span>{m.host_invitation_from({ creator: localize(invite.creator_name) })}</span>
+						<span
+							>{m.host_invitation_from({
+								creator: localize(invite.sales_target_group_name)
+							})}</span>
 					</div>
 					<div class="toolbar">
 						<button
@@ -429,7 +434,8 @@
 				<a class="agenda-item" href={resolve('/activities/[id]', { id: activity.id })}>
 					<time>{dateTime(activity.time_start)}</time>
 					<strong>{localize(activity.title)}</strong>
-					<span>{localize(activity.creator_name, activity.creator_path)}</span>
+					<span
+						>{localize(activity.sales_target_group_name, activity.sales_target_group_path)}</span>
 					{#if activity.is_hidden}<span class="pill hidden">{m.unpublished()}</span>{/if}
 				</a>
 			{/each}

@@ -28,6 +28,7 @@ class AuthSession {
 
 		const settings: UserManagerSettings = {
 			authority: oidcAuthority,
+			fetchRequestCredentials: 'include',
 			client_id: oidcClientId,
 			redirect_uri: callbackUrl(),
 			response_type: 'code',
@@ -42,7 +43,7 @@ class AuthSession {
 			userStore: new WebStorageStateStore({ store: window.localStorage }),
 			extraQueryParams: {
 				providers: 'email',
-				callback_url_v1: `${apiBaseUrl}/user/auth-callback/v1`
+				callback_url_v1: `${apiBaseUrl}/v0/user/auth-callback/v1`
 			}
 		};
 
@@ -81,7 +82,7 @@ class AuthSession {
 			state: { returnTo },
 			extraQueryParams: {
 				providers: 'email',
-				callback_url_v1: `${apiBaseUrl}/user/auth-callback/v1`
+				callback_url_v1: `${apiBaseUrl}/v0/user/auth-callback/v1`
 			}
 		});
 	}

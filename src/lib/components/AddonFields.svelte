@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PutTicketKind } from '$lib/api/types';
+	import type { AvailableAddon } from '$lib/api/types';
 	import { validBookkeeping } from '$lib/addon-validation';
 	import BookkeepingCategorySelect from './BookkeepingCategorySelect.svelte';
 	import LocalizedField from './LocalizedField.svelte';
@@ -9,7 +9,7 @@
 	import { ChevronRight, Plus, Trash2 } from '@lucide/svelte';
 	import { Switch } from '@svar-ui/svelte-core';
 
-	type Addon = PutTicketKind['addons'][number];
+	type Addon = AvailableAddon;
 	type Option = Addon['options'][number];
 	let {
 		addon,

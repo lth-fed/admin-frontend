@@ -1,39 +1,16 @@
 export const TRANSFER_START = '1970-01-01T00:00:00.000Z';
 export const TRANSFER_STOP = '3000-01-01T00:00:00.000Z';
 
-type TransferKind = {
-	for_visibility: boolean;
-	min_tickets: number;
-	allowed_group_ids: string[];
-	transfer_group_ids: string[];
-};
-
 export function sameGroups(a: string[], b: string[]): boolean {
 	return [...new Set(a)].sort().join('|') === [...new Set(b)].sort().join('|');
 }
 
-export function defaultTransferGroups(kind: TransferKind, kinds: TransferKind[]): string[] {
-	return [
-		...new Set(
-			kind.min_tickets > 0
-				? kind.allowed_group_ids
-				: kinds.filter((item) => !item.for_visibility).flatMap((item) => item.allowed_group_ids)
-		)
-	];
-}
-
-export function hasDefaultTransferGroups(kind: TransferKind, kinds: TransferKind[]): boolean {
-	return sameGroups(kind.transfer_group_ids, defaultTransferGroups(kind, kinds));
-}
-
-export function updatedDefaultTransferGroups(
-	kind: TransferKind,
-	before: TransferKind[],
-	after: TransferKind[]
-): string[] | undefined {
-	if (kind.for_visibility || !hasDefaultTransferGroups(kind, before)) return undefined;
-	const groups = defaultTransferGroups(kind, after);
-	return sameGroups(kind.transfer_group_ids, groups) ? undefined : groups;
+/**
+ * Default transfer recipients for an extra ticket kind: the buyer groups of the activity's base
+ * ticket. Extra kinds are only sold to base-ticket buyers, so they may be transferred to them.
+ */
+export function defaultTransferGroups(baseAllowedGroupIds: string[]): string[] {
+	return [...new Set(baseAllowedGroupIds)];
 }
 
 export function hasTransferWindow(start: string, stop: string): boolean {

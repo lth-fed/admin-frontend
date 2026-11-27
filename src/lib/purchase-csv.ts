@@ -1,4 +1,4 @@
-import type { AdminUser, PurchasedTicket, TicketKind } from '$lib/api/types';
+import type { AdminUser, PurchasedTicket, PurchaseKind } from '$lib/api/types';
 import { localize } from '$lib/i18n';
 import * as m from '$lib/paraglide/messages';
 import { getLocale } from '$lib/paraglide/runtime';
@@ -7,7 +7,7 @@ function csvCell(value: string): string {
 	return `"${value.replaceAll('"', '""')}"`;
 }
 
-function purchaseAmount(ticket: PurchasedTicket, kind: TicketKind | undefined): number {
+function purchaseAmount(ticket: PurchasedTicket, kind: PurchaseKind | undefined): number {
 	if (!kind) return 0;
 	return (
 		kind.price +
@@ -32,7 +32,7 @@ function sek(valueInOre: number): string {
 
 export function downloadTicketPurchasersCsv(
 	purchases: PurchasedTicket[],
-	kinds: TicketKind[],
+	kinds: PurchaseKind[],
 	users: AdminUser[]
 ): void {
 	const usersById = new Map(users.map((user) => [user.user_id, user.name]));

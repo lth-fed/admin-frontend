@@ -1,6 +1,6 @@
-import type { PutTicketKind } from '$lib/api/types';
+import type { AvailableAddon } from '$lib/api/types';
 
-type Addon = PutTicketKind['addons'][number];
+type Addon = AvailableAddon;
 
 export function validBookkeeping(option: Addon['options'][number]): boolean {
 	return (
@@ -11,7 +11,7 @@ export function validBookkeeping(option: Addon['options'][number]): boolean {
 	);
 }
 
-export function validAddons(addons: PutTicketKind['addons']): boolean {
+export function validAddons(addons: AvailableAddon[]): boolean {
 	if (!Array.isArray(addons)) return false;
 	const ids = new Set<string>();
 	const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

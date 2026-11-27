@@ -2,19 +2,33 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { auth } from '$lib/auth.svelte';
-	import { getMe, saveLanguage } from '$lib/api/admin';
+	import { getMe, listVoteMeetings, saveLanguage } from '$lib/api/admin';
+	import { goto } from '$app/navigation';
 	import { frontendError } from '$lib/api/client';
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import PersonalAccountSetting from '$lib/components/PersonalAccountSetting.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime';
 	import { Button, WillowDark } from '@svar-ui/svelte-core';
-	import { Bell, CalendarDays, LogOut, Menu, Plus, Users, X } from '@lucide/svelte';
+	import {
+		Bell,
+		CalendarDays,
+		LogOut,
+		Menu,
+		Package,
+		Receipt,
+		Plus,
+		Ticket,
+		Users,
+		Vote,
+		X
+	} from '@lucide/svelte';
 	import './layout.css';
 
 	let { children } = $props();
 	let menuOpen = $state(false);
 	let hasAdminGroup = $state<boolean | null>(null);
+	let hasVoteAccess = $state(false);
 	let adminAccessError = $state<string | null>(null);
 	const callbackPage = $derived(page.url.pathname.startsWith('/auth/callback'));
 
@@ -41,7 +55,12 @@
 				await persistBrowserLocale(storedLocale);
 				return;
 			}
-			hasAdminGroup = me.admin_group_ids.length > 0;
+			const isGroupAdmin = me.admin_group_ids.length > 0;
+			hasVoteAccess = !isGroupAdmin && (await listVoteMeetings()).length > 0;
+			hasAdminGroup = isGroupAdmin;
+			if (hasVoteAccess && !page.url.pathname.startsWith('/votes')) {
+				await goto(resolve('/votes'));
+			}
 		} catch (cause) {
 			adminAccessError = frontendError(cause) ?? m.error_title();
 		}
@@ -51,6 +70,7 @@
 		if (auth.status === 'authenticated') void loadAdminAccess();
 		else {
 			hasAdminGroup = null;
+			hasVoteAccess = false;
 			adminAccessError = null;
 		}
 	});
@@ -110,7 +130,7 @@
 			<div class="loader"></div>
 			<p>{m.loading()}</p>
 		</main>
-	{:else if hasAdminGroup === false || adminAccessError}
+	{:else if (hasAdminGroup === false && !hasVoteAccess) || adminAccessError}
 		<main class="login-stage">
 			<section class="login-card">
 				<div class="brand-mark"><Users size={30} /></div>
@@ -142,34 +162,79 @@
 					<span>{m.app_name()}</span>
 				</a>
 				<nav aria-label="Main navigation">
-					<a
-						class:active={page.url.pathname === '/'}
-						href={resolve('/')}
-						onclick={() => (menuOpen = false)}>
-						<CalendarDays size={19} />
-						{m.nav_activities()}
-					</a>
-					<a
-						class:active={page.url.pathname.startsWith('/activities/new')}
-						href={resolve('/activities/new')}
-						onclick={() => (menuOpen = false)}>
-						<Plus size={19} />
-						{m.new_activity()}
-					</a>
-					<a
-						class:active={page.url.pathname.startsWith('/groups')}
-						href={resolve('/groups')}
-						onclick={() => (menuOpen = false)}>
-						<Users size={19} />
-						{m.nav_groups()}
-					</a>
-					<a
-						class:active={page.url.pathname.startsWith('/notifications')}
-						href={resolve('/notifications')}
-						onclick={() => (menuOpen = false)}>
-						<Bell size={19} />
-						{m.notifications()}
-					</a>
+					{#if hasAdminGroup}
+						<a
+							class:active={page.url.pathname === '/'}
+							href={resolve('/')}
+							onclick={() => (menuOpen = false)}>
+							<CalendarDays size={19} />
+							{m.nav_activities()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/activities/new')}
+							href={resolve('/activities/new')}
+							onclick={() => (menuOpen = false)}>
+							<Plus size={19} />
+							{m.new_activity()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/products')}
+							href={resolve('/products')}
+							onclick={() => (menuOpen = false)}>
+							<Ticket size={19} />
+							{m.nav_products()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/stock')}
+							href={resolve('/stock')}
+							onclick={() => (menuOpen = false)}>
+							<Package size={19} />
+							{m.nav_stock()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/purchases')}
+							href={resolve('/purchases')}
+							onclick={() => (menuOpen = false)}>
+							<Receipt size={19} />
+							{m.nav_purchases()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/votes')}
+							href={resolve('/votes')}
+							onclick={() => (menuOpen = false)}>
+							<Vote size={19} />
+							{m.nav_votes()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/groups')}
+							href={resolve('/groups')}
+							onclick={() => (menuOpen = false)}>
+							<Users size={19} />
+							{m.nav_groups()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/news')}
+							href={resolve('/news')}
+							onclick={() => (menuOpen = false)}>
+							<Bell size={19} />
+							{m.news()}
+						</a>
+					{:else}
+						<a
+							class:active={page.url.pathname.startsWith('/purchases')}
+							href={resolve('/purchases')}
+							onclick={() => (menuOpen = false)}>
+							<Receipt size={19} />
+							{m.nav_purchases()}
+						</a>
+						<a
+							class:active={page.url.pathname.startsWith('/votes')}
+							href={resolve('/votes')}
+							onclick={() => (menuOpen = false)}>
+							<Vote size={19} />
+							{m.nav_votes()}
+						</a>
+					{/if}
 				</nav>
 				<div class="sidebar-footer">
 					<PersonalAccountSetting />

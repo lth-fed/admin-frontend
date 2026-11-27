@@ -12,78 +12,69 @@
 	import {
 		addActivityVerifier,
 		deleteActivity,
-		deleteActivityNotification,
-		deleteTicketKind,
 		downloadActivityReport,
 		getActivity,
-		getTicketKind,
 		getVerifiedTicketHolderCount,
 		getMe,
 		inviteActivityHost,
-		getActivityTicketKinds,
-		listActivityAddons,
-		saveActivityAddon,
+		listActivityProducts,
+		listGroupProducts,
+		linkActivityItem,
+		listGroupResales,
+		saveProduct,
+		listAddons,
+		saveAddon,
 		listGroupTree,
-		listActivityNotifications,
 		listPendingActivityHosts,
 		listPurchasedTickets,
+		refundPurchase,
+		createExternalUser,
 		listActivityVerifiers,
+		listTicketBuyers,
+		inviteTicketBuyer,
+		removeTicketBuyer,
 		removeActivityVerifier,
-		saveActivity,
-		saveActivityNotification,
-		saveTicketKind
+		saveActivity
 	} from '$lib/api/admin';
 	import { frontendError } from '$lib/api/client';
 	import type {
 		AdminUser,
-		ActivityNotification,
-		ActivityNotificationKind,
 		ExternalSaleCategory,
 		Group,
 		PutActivity,
-		PutNotification,
-		PutTicketKind,
+		AdminProduct,
+		AdminResale,
+		AvailableAddon,
 		PurchasedTicket,
 		ReportRequest,
-		TicketKind
+		TicketBuyer
 	} from '$lib/api/types';
 	import { loadVisibleMemberOptions } from '$lib/visible-members';
 	import ActivityDetailsFields from '$lib/components/ActivityDetailsFields.svelte';
 	import ActivityLocationFields from '$lib/components/ActivityLocationFields.svelte';
+	import SalesDevices from '$lib/components/SalesDevices.svelte';
+	import ExportPdf from '$lib/components/ExportPdf.svelte';
 	import ActivityTabs from '$lib/components/ActivityTabs.svelte';
 	import BookkeepingCategorySelect from '$lib/components/BookkeepingCategorySelect.svelte';
 	import GroupIcon from '$lib/components/GroupIcon.svelte';
 	import GroupTreeExplorer from '$lib/components/GroupTreeExplorer.svelte';
 	import GroupTreePicker from '$lib/components/GroupTreePicker.svelte';
 	import MoneyInput from '$lib/components/MoneyInput.svelte';
-	import NotificationFields from '$lib/components/NotificationFields.svelte';
-	import NotificationWarnings from '$lib/components/NotificationWarnings.svelte';
 	import PurchaseGrid from '$lib/components/PurchaseGrid.svelte';
 	import UserList from '$lib/components/UserList.svelte';
 	import { copiedLocalizedTitle, dateTime, kronor, localize, sortByLocalizedName } from '$lib/i18n';
 	import { uploadImage, uploadRandomColorImage } from '$lib/image';
 	import { cropActivityImage } from '$lib/crop-image';
 	import * as m from '$lib/paraglide/messages';
-	import { ticketKindBody } from '$lib/ticket-kind';
 	import { copyTicketAddon } from '$lib/ticket-presets';
-	import { defaultTransferGroups, hasDefaultTransferGroups } from '$lib/transfer-settings';
-	import {
-		ArrowLeft,
-		Copy,
-		Download,
-		Eye,
-		EyeOff,
-		Pencil,
-		Plus,
-		Send,
-		Trash2
-	} from '@lucide/svelte';
+	import { isVisibilityProduct, linkedAddons, productBody } from '$lib/product';
+	import { defaultTransferGroups, sameGroups } from '$lib/transfer-settings';
+	import { ArrowLeft, Copy, Download, Eye, EyeOff, Plus, Send, Trash2 } from '@lucide/svelte';
 	import { Select, Switch } from '@svar-ui/svelte-core';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { toasts } from '$lib/toasts.svelte';
 	import { parseCoordinate } from '$lib/coordinates';
 	import { downloadTicketPurchasersCsv } from '$lib/purchase-csv';
-	import HelpTip from './HelpTip.svelte';
 
 	const I32_MAX = 2_147_483_647;
 	type ValidationIssue = { field: string; message: string };
@@ -103,7 +94,6 @@
 	let north = $state('');
 	let east = $state('');
 	let contactKind = $state<'mailto' | 'tel'>('mailto');
-	let limitCapacity = $state(false);
 	let minimumCapacity = $state(0);
 	let reportCategoryOptions = $state<string[]>([]);
 	let externalSaleFees = $state<number | undefined>(undefined);
@@ -113,49 +103,38 @@
 	let invitingHostId = $state<string | null>(null);
 	let verifiers = $state<AdminUser[]>([]);
 	let userSuggestions = $state<AdminUser[]>([]);
-	let detailedTicketKinds = $state<TicketKind[]>([]);
+	let detailedTicketKinds = $state<AdminProduct[]>([]);
+	let availableItems = $state<AdminProduct[]>([]);
+	let linkingItemId = $state<string | null>(null);
+	let baseTicketId = $state('');
 	let owners = $state<PurchasedTicket[]>([]);
 	let verifiedTicketHolders = $state(0);
 	let editorTab = $derived(activityTabIndex(page.url));
 	let visibilityGroupIds = $state<string[]>([]);
 	let savingVisibility = $state(false);
-	let activityAddons = $state<PutTicketKind['addons']>([]);
+	let activityAddons = $state<AvailableAddon[]>([]);
 	const sortedAddons = $derived(sortByLocalizedName(activityAddons, (addon) => addon.name));
 	let savingTransferSettings = $state(false);
-	let notificationSaving = $state(false);
-	let editingNotificationId = $state<string | null>(null);
-	let deletingNotificationKey = $state<string | null>(null);
-	let notificationTarget = $state<ActivityNotificationKind>('buyers');
-	let notificationDraft = $state<PutNotification>({
-		title: { sv: '', en: '' },
-		content: { sv: '', en: '' },
-		send_at: new Date().toISOString()
-	});
-	const hasDangerousVisibilityGroup = $derived(
-		detailedTicketKinds.some(
-			(kind) =>
-				kind.for_visibility &&
-				kind.allowed_group_ids.some((groupId) => {
-					const path = groups.find((group) => group.id === groupId)?.path;
-					return path !== undefined && path.split('.').length <= 2;
-				})
-		)
+	const baseProduct = $derived(
+		detailedTicketKinds.find((kind) => kind.id === baseTicketId) ?? null
 	);
-	let scheduledNotifications = $state<ActivityNotification[]>([]);
+	/** The base ticket only counts as a ticket once the placeholder product was turned into one. */
+	const baseTicketProduct = $derived(baseProduct?.kind === 'ticket' ? baseProduct : null);
+	let activityViews = $state(0);
+	let resales = $state<AdminResale[]>([]);
 	let savedActivitySnapshot = $state('');
-	let savedNotificationSnapshot = $state('');
 	let allowNavigation = $state(false);
 	const editorTabs = new Map<ActivityTab, string>([
 		['details', m.creation_step_details()],
 		['logistics', m.creation_step_logistics()],
 		['tickets', m.creation_step_tickets()],
 		['sales', m.creation_step_sales()],
-		['notifications', m.notifications()]
+		['products', m.nav_products()]
 	]);
 	let form = $state<PutActivity>({
 		responsible_name: '',
 		responsible_contact: '',
-		creator_id: '',
+		sales_target_group_id: '',
 		title: { sv: '', en: '' },
 		description: { sv: '', en: '' },
 		location: { name: { sv: '', en: '' }, directions: { sv: '', en: '' }, url: '' },
@@ -164,34 +143,106 @@
 		image_id: '',
 		is_hidden: true,
 		is_hidden_for_other_admins: false,
-		max_tickets: I32_MAX,
+		// One ticket per person by default (the server default too).
+		max_tickets_per_user: 1,
 		host_ids: []
 	});
 	const contactValue = $derived(form.responsible_contact.replace(/^(mailto:|tel:)/, ''));
-	const creatorGroup = $derived(groups.find((group) => group.id === form.creator_id));
+	const creatorGroup = $derived(groups.find((group) => group.id === form.sales_target_group_id));
 	const canEdit = $derived(
 		isNew ||
-			adminGroupIds.some((groupId) => groupId === form.creator_id || savedHostIds.includes(groupId))
+			adminGroupIds.some(
+				(groupId) => groupId === form.sales_target_group_id || savedHostIds.includes(groupId)
+			)
 	);
-	const visibilityTicketKinds = $derived(detailedTicketKinds.filter((kind) => kind.for_visibility));
 	const regularTicketKinds = $derived(
 		sortByLocalizedName(
-			detailedTicketKinds.filter((kind) => !kind.for_visibility),
-			(kind) => kind.ticket_kind_name
+			detailedTicketKinds.filter((kind) => kind.kind === 'ticket'),
+			(kind) => kind.name
+		)
+	);
+	/** The base ticket gets its own card, so it must not be listed again among the extra kinds. */
+	const extraTicketKinds = $derived(regularTicketKinds.filter((kind) => kind.id !== baseTicketId));
+	const linkedItems = $derived(
+		sortByLocalizedName(
+			detailedTicketKinds.filter((product) => product.kind === 'normal'),
+			(product) => product.name
+		)
+	);
+	const unlinkedItems = $derived(
+		sortByLocalizedName(
+			availableItems.filter(
+				(product) =>
+					product.kind === 'normal' &&
+					!detailedTicketKinds.some((linked) => linked.id === product.id)
+			),
+			(product) => product.name
 		)
 	);
 	const ticketKindVisibilityGroupIds = $derived([
 		...new Set(regularTicketKinds.flatMap((kind) => kind.allowed_group_ids))
 	]);
+	const purchaseKinds = $derived(
+		detailedTicketKinds.map((product) => ({
+			ticket_kind_id: product.id,
+			ticket_kind_name: product.name,
+			price: product.price,
+			available_addons: linkedAddons(product, activityAddons)
+		}))
+	);
 	const canDelete = $derived(
 		Boolean(id && canEdit && form.is_hidden && regularTicketKinds.length === 0)
 	);
+	const productSalesGroups = $derived([
+		...new Set(regularTicketKinds.map((product) => product.group_id))
+	]);
+	const hasMultipleSalesGroups = $derived(productSalesGroups.length > 1);
+	const productSalesGroupLabels = $derived(
+		productSalesGroups.map((id) => groups.find((group) => group.id === id)?.path ?? id)
+	);
+	// Extra kinds default to the base ticket's buyer groups (see `defaultTransferGroups`).
+	const defaultTransferGroupIds = $derived(
+		defaultTransferGroups(baseProduct?.allowed_group_ids ?? [])
+	);
 	const transferGroupsDefault = $derived(
-		regularTicketKinds.every((kind) => hasDefaultTransferGroups(kind, regularTicketKinds))
+		regularTicketKinds.every((kind) => sameGroups(kind.transfer_group_ids, defaultTransferGroupIds))
+	);
+	const TICKET_KIND_COLORS = ['#7fb98a', '#c9a86a', '#8aa9c0', '#c08a8a', '#a294c4', '#84c4b0'];
+	const groupLabel = (groupId: string): string =>
+		groups.find((group) => group.id === groupId)?.path ?? groupId;
+	const groupLabelList = (groupIds: string[]): string =>
+		groupIds.length ? groupIds.map(groupLabel).join(', ') : m.ticket_no_buyers();
+	/** Tickets already sold per kind; refunded purchases free their unit again. */
+	const soldTicketCounts = $derived.by(() => {
+		const counts = new SvelteMap<string, number>();
+		for (const owner of owners) {
+			if (owner.refunded) continue;
+			counts.set(owner.ticket_kind_id, (counts.get(owner.ticket_kind_id) ?? 0) + 1);
+		}
+		return counts;
+	});
+	const ticketCapacity = $derived(
+		[baseTicketProduct, ...extraTicketKinds]
+			.filter((kind): kind is AdminProduct => !!kind && kind.sales_stock !== undefined)
+			.map((kind, index) => ({
+				id: kind.id,
+				name: localize(kind.name, '').trim() || kind.id,
+				remaining: kind.sales_stock ?? 0,
+				sold: soldTicketCounts.get(kind.id) ?? 0,
+				base: kind.id === baseTicketProduct?.id,
+				reservedFor: groupLabelList(kind.allowed_group_ids),
+				color: TICKET_KIND_COLORS[index % TICKET_KIND_COLORS.length]
+			}))
+	);
+	const ticketCapacityTracked = $derived(
+		ticketCapacity.some((entry) => entry.remaining > 0 || entry.sold > 0) &&
+			ticketCapacity.length === (baseTicketProduct ? 1 : 0) + extraTicketKinds.length
+	);
+	const ticketCapacityTotal = $derived(
+		ticketCapacity.reduce((sum, entry) => sum + entry.remaining + entry.sold, 0)
 	);
 	const hasUnsavedChanges = $derived(
-		(savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot) ||
-			(savedNotificationSnapshot !== '' && serializeNotification() !== savedNotificationSnapshot)
+		savedActivitySnapshot !== '' && serializeActivity() !== savedActivitySnapshot
 	);
 
 	beforeNavigate(({ cancel, from, to, willUnload }) => {
@@ -218,23 +269,20 @@
 		return JSON.stringify({
 			form,
 			north,
-			east,
-			limitCapacity
+			east
 		});
 	}
 
-	function serializeNotification(): string {
-		return JSON.stringify({ notificationTarget, notificationDraft });
-	}
-
-	function notificationRecipientLabel(recipient: ActivityNotificationKind): string {
-		switch (recipient) {
-			case 'all':
-				return m.notification_recipient_all();
-			case 'buyers':
-				return m.notification_recipient_buyers();
-			case 'ticket_holders':
-				return m.notification_recipient_ticket_holders();
+	async function linkItem(productId: string): Promise<void> {
+		if (!id) return;
+		linkingItemId = productId;
+		try {
+			await linkActivityItem(id, productId);
+			detailedTicketKinds = await listActivityProducts(id);
+		} catch (cause) {
+			error = frontendError(cause);
+		} finally {
+			linkingItemId = null;
 		}
 	}
 
@@ -251,12 +299,13 @@
 			userSuggestions = loadedUsers;
 			adminGroupIds = me.admin_group_ids;
 			if (id) {
-				const [activity, kinds] = await Promise.all([getActivity(id), getActivityTicketKinds(id)]);
+				const [activity, kinds] = await Promise.all([getActivity(id), listActivityProducts(id)]);
 				const additionalHostIds = activity.hosts
 					.map((host) => host.id)
-					.filter((hostId) => hostId !== activity.creator_id);
+					.filter((hostId) => hostId !== activity.sales_target_group_id);
 				const mayEdit = me.admin_group_ids.some(
-					(groupId) => groupId === activity.creator_id || additionalHostIds.includes(groupId)
+					(groupId) =>
+						groupId === activity.sales_target_group_id || additionalHostIds.includes(groupId)
 				);
 				const [pendingHosts, activityVerifiers, verifiedHolders] = mayEdit
 					? await Promise.all([
@@ -268,7 +317,7 @@
 				form = {
 					responsible_name: activity.responsible.name,
 					responsible_contact: activity.responsible.contact,
-					creator_id: activity.creator_id,
+					sales_target_group_id: activity.sales_target_group_id,
 					title: { ...activity.title },
 					description: { ...activity.description },
 					location: {
@@ -282,7 +331,8 @@
 					image_id: activity.image_id,
 					is_hidden: activity.is_hidden,
 					is_hidden_for_other_admins: activity.is_hidden_for_other_admins,
-					max_tickets: activity.max_tickets,
+					max_tickets_per_user: activity.max_tickets,
+					stock_group_id: activity.stock_group_id,
 					host_ids: additionalHostIds
 				};
 				savedHostIds = additionalHostIds;
@@ -291,34 +341,41 @@
 				verifiedTicketHolders = verifiedHolders;
 				imageUrl = activity.image_url;
 				contactKind = activity.responsible.contact.startsWith('tel:') ? 'tel' : 'mailto';
-				limitCapacity = activity.max_tickets !== I32_MAX;
+				activityViews = activity.views;
+				baseTicketId = activity.base_ticket ?? '';
 				north = activity.location.coordinate_wgs84?.north.toString() ?? '';
 				east = activity.location.coordinate_wgs84?.east.toString() ?? '';
-				const activityNotifications = mayEdit ? await listActivityNotifications(id) : [];
+				if (mayEdit) {
+					resales = (await listGroupResales(activity.sales_target_group_id)).filter(
+						(resale) => resale.activity_id === id
+					);
+				}
 				owners = mayEdit
 					? (
-							await Promise.all(kinds.map((ticket) => listPurchasedTickets(ticket.ticket_kind_id)))
+							await Promise.all(
+								kinds
+									.filter((product) => product.kind === 'ticket')
+									.map((product) => listPurchasedTickets(product.id))
+							)
 						).flat()
 					: [];
 				detailedTicketKinds = kinds;
-				activityAddons = await listActivityAddons(id);
-				visibilityGroupIds = [...new Set(kinds.flatMap((kind) => kind.allowed_group_ids))];
-				scheduledNotifications = activityNotifications;
-				notificationTarget = kinds.some((kind) => kind.has_been_purchased)
-					? 'ticket_holders'
-					: kinds.some((kind) => !kind.for_visibility)
-						? 'buyers'
-						: 'all';
-				minimumCapacity = kinds.reduce(
-					(total, kind) => total + kind.reserved_or_purchased_tickets,
-					0
-				);
+				availableItems = mayEdit
+					? (
+							await Promise.all(me.admin_group_ids.map((groupId) => listGroupProducts(groupId)))
+						).flat()
+					: [];
+				activityAddons = await listAddons({ activityId: id });
+				visibilityGroupIds = [
+					...new Set(
+						kinds.find((kind) => kind.id === (activity.base_ticket ?? ''))?.allowed_group_ids ?? []
+					)
+				];
+				minimumCapacity = 0;
 				reportCategoryOptions = [
 					...new Set(
-						kinds.flatMap((kind) =>
-							kind.available_addons.flatMap((addon) =>
-								addon.options.flatMap((option) => option.bookkeeping_price_categories)
-							)
+						activityAddons.flatMap((addon) =>
+							addon.options.flatMap((option) => option.bookkeeping_price_categories)
 						)
 					)
 				];
@@ -327,10 +384,9 @@
 				form.responsible_contact = me.id.startsWith('email:')
 					? `mailto:${me.id.slice('email:'.length)}`
 					: '';
-				form.creator_id = me.admin_group_ids[0] ?? '';
+				form.sales_target_group_id = me.admin_group_ids[0] ?? '';
 			}
 			if (savedActivitySnapshot === '') savedActivitySnapshot = serializeActivity();
-			if (savedNotificationSnapshot === '') savedNotificationSnapshot = serializeNotification();
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
@@ -357,9 +413,24 @@
 		}
 	}
 
-	function toggleCapacityLimit(enabled: boolean): void {
-		limitCapacity = enabled;
-		form.max_tickets = enabled ? Math.max(minimumCapacity, 0) : I32_MAX;
+	const capacityOptions = $derived([
+		{ id: 'none', label: m.per_user_limit_none() },
+		{ id: 'one', label: m.per_user_limit_one() },
+		{ id: 'multiple', label: m.per_user_limit_multiple() }
+	]);
+	const capacityPreset = $derived(
+		form.max_tickets_per_user >= I32_MAX
+			? 'none'
+			: form.max_tickets_per_user === 1
+				? 'one'
+				: 'multiple'
+	);
+
+	function setCapacityPreset(preset: string): void {
+		if (preset === 'none') form.max_tickets_per_user = I32_MAX;
+		else if (preset === 'one') form.max_tickets_per_user = 1;
+		else if (form.max_tickets_per_user < 2 || form.max_tickets_per_user >= I32_MAX)
+			form.max_tickets_per_user = Math.max(minimumCapacity, 2);
 	}
 
 	function issue(field: string, message: string): ValidationIssue {
@@ -379,15 +450,15 @@
 			!/^\+?[0-9][0-9 ()-]{5,}$/.test(contactValue)
 		)
 			return issue(m.responsible_contact(), m.invalid_phone());
-		if (!form.creator_id) return issue(m.creator(), m.required_fields());
+		if (!form.sales_target_group_id) return issue(m.creator(), m.required_fields());
 		if (new Date(form.time_end) <= new Date(form.time_start))
 			return issue(m.end(), m.end_after_start());
 		if (
-			limitCapacity &&
-			(!Number.isInteger(form.max_tickets) || form.max_tickets < minimumCapacity)
+			capacityPreset !== 'none' &&
+			(!Number.isInteger(form.max_tickets_per_user) || form.max_tickets_per_user < minimumCapacity)
 		)
-			return issue(m.activity_capacity(), m.capacity_too_low({ minimum: minimumCapacity }));
-		if (!id && !adminGroupIds.includes(form.creator_id))
+			return issue(m.per_user_limit(), m.capacity_too_low({ minimum: minimumCapacity }));
+		if (!id && !adminGroupIds.includes(form.sales_target_group_id))
 			return issue(m.creator(), m.admin_host_required());
 		if (!isHidden && visibilityGroupIds.length === 0)
 			return issue(m.visibility_access(), m.activity_visibility_required());
@@ -430,81 +501,112 @@
 		}
 	}
 
-	async function changeVerifier(run: () => Promise<void>): Promise<void> {
+	async function refundActivityPurchase(purchaseId: string, message?: string): Promise<void> {
+		error = null;
+		try {
+			await refundPurchase(purchaseId, message);
+			owners = (
+				await Promise.all(
+					detailedTicketKinds
+						.filter((product) => !isVisibilityProduct(product))
+						.map((product) => listPurchasedTickets(product.id))
+				)
+			).flat();
+		} catch (cause) {
+			error = frontendError(cause);
+		}
+	}
+
+	/** Runs one admin write, then reloads the list it changed. */
+	async function runAndReload(
+		run: () => Promise<void>,
+		reload: () => Promise<void>
+	): Promise<void> {
 		if (!id) return;
 		error = null;
 		try {
 			await run();
-			verifiers = await listActivityVerifiers(id);
+			await reload();
 		} catch (cause) {
 			error = frontendError(cause);
 		}
 	}
 
-	async function refreshNotifications(): Promise<void> {
-		if (id) scheduledNotifications = await listActivityNotifications(id);
+	async function changeVerifier(run: () => Promise<void>): Promise<void> {
+		await runAndReload(run, async () => {
+			verifiers = await listActivityVerifiers(id!);
+		});
 	}
 
-	async function createNotification(): Promise<void> {
-		if (!id || !canEdit || notificationSaving || form.is_hidden) return;
-		if (!notificationDraft.content.sv.trim() || !notificationDraft.content.en.trim()) {
-			error = m.required_fields();
-			toasts.show('error', error);
+	let inviteKindId = $state('');
+	let ticketBuyers = $state<TicketBuyer[]>([]);
+	const inviteKind = $derived(regularTicketKinds.find((kind) => kind.id === inviteKindId));
+
+	async function loadTicketBuyers(productId: string): Promise<void> {
+		if (!id || !productId) return;
+		ticketBuyers = await listTicketBuyers(id, productId);
+	}
+
+	function changeInvites(run: () => Promise<void>): Promise<void> {
+		return runAndReload(run, () => loadTicketBuyers(inviteKindId));
+	}
+
+	let externalName = $state('');
+
+	/** Creates an anonymous person in the activity's sales group and invites them to the kind. */
+	async function inviteAnonymous(): Promise<void> {
+		const kind = inviteKind;
+		if (!id || !kind || !externalName.trim()) return;
+		await changeInvites(async () => {
+			const created = await createExternalUser({
+				name: externalName.trim(),
+				group_ids: [form.sales_target_group_id]
+			});
+			await inviteTicketBuyer(id!, kind.id, created.user_id);
+			externalName = '';
+		});
+	}
+
+	async function releaseAllocatedTickets(): Promise<void> {
+		if (!id || !canEdit || saving) return;
+		const base = baseTicketProduct;
+		if (!base) {
+			error = m.error_title();
 			return;
 		}
-		notificationSaving = true;
+		const tickets = regularTicketKinds.filter(
+			(product) => product.kind === 'ticket' && product.id !== base.id
+		);
+		const freed = tickets.reduce((sum, product) => sum + (product.sales_stock ?? 0), 0);
+		saving = true;
 		error = null;
 		try {
-			await saveActivityNotification(id, editingNotificationId ?? crypto.randomUUID(), {
-				recipient: notificationTarget,
-				...notificationDraft
-			});
-			await refreshNotifications();
-			editingNotificationId = null;
-			savedNotificationSnapshot = serializeNotification();
-			toasts.show('success', m.backend_success());
-		} catch (cause) {
-			error = frontendError(cause);
-		} finally {
-			notificationSaving = false;
-		}
-	}
-
-	function editNotification(notification: ActivityNotification): void {
-		if (notification.sent || form.is_hidden) return;
-		editingNotificationId = notification.id;
-		notificationTarget = notification.recipient;
-		notificationDraft = {
-			title: { ...notification.title },
-			content: { ...notification.content },
-			send_at: notification.send_at
-		};
-	}
-
-	function cancelNotificationEdit(): void {
-		editingNotificationId = null;
-		notificationDraft = {
-			title: { sv: '', en: '' },
-			content: { sv: '', en: '' },
-			send_at: new Date().toISOString()
-		};
-		savedNotificationSnapshot = serializeNotification();
-	}
-
-	async function removeNotification(notificationId: string): Promise<void> {
-		if (!canEdit || !confirm(m.delete_notification_confirm())) return;
-		deletingNotificationKey = notificationId;
-		error = null;
-		try {
-			await deleteActivityNotification(id!, notificationId);
-			scheduledNotifications = scheduledNotifications.filter(
-				(notification) => notification.id !== notificationId
+			for (const product of tickets) {
+				if (product.sales_stock === 0) continue;
+				await saveProduct(
+					product.id,
+					{
+						...productBody(product, linkedAddons(product, activityAddons)),
+						sales_stock: 0
+					},
+					{ notify: false }
+				);
+			}
+			await saveProduct(
+				base.id,
+				{
+					...productBody(base, linkedAddons(base, activityAddons)),
+					sales_stock: (base.sales_stock ?? 0) + freed
+				},
+				{ notify: false }
 			);
+			detailedTicketKinds = await listActivityProducts(id);
 			toasts.show('success', m.backend_success());
+			if (confirm(m.release_allocated_confirm())) changeEditorTab('tickets');
 		} catch (cause) {
 			error = frontendError(cause);
 		} finally {
-			deletingNotificationKey = null;
+			saving = false;
 		}
 	}
 
@@ -512,56 +614,24 @@
 		if (!id || !canEdit || savingVisibility) return;
 		const lockedIds = new Set(ticketKindVisibilityGroupIds);
 		const editableIds = selectedIds.filter((groupId) => !lockedIds.has(groupId));
-		const primary = visibilityTicketKinds[0];
+		// Visibility lives on the activity's base product even before it is turned into a ticket.
+		const primary = baseProduct;
 		savingVisibility = true;
 		error = null;
 		try {
-			if (primary) {
-				await saveTicketKind(
-					primary.ticket_kind_id,
-					{
-						...ticketKindBody(primary),
-						allowed_group_ids: editableIds
-					},
-					{ notify: false }
-				);
-				primary.allowed_group_ids = editableIds;
-				for (const redundant of visibilityTicketKinds.slice(1)) {
-					if (redundant.allowed_group_ids.length === 0) continue;
-					await saveTicketKind(
-						redundant.ticket_kind_id,
-						{
-							...ticketKindBody(redundant),
-							allowed_group_ids: []
-						},
-						{ notify: false }
-					);
-					redundant.allowed_group_ids = [];
-				}
-			} else if (editableIds.length > 0) {
-				const release = new Date(Date.now() + 15 * 60 * 1_000).toISOString();
-				const ticketKindId = crypto.randomUUID();
-				await saveTicketKind(
-					ticketKindId,
-					{
-						activity_id: id,
-						name: { sv: 'null', en: 'null' },
-						price: 0,
-						purchasing_available_start: release,
-						purchasing_available_stop: release,
-						max_tickets: 0,
-						for_visibility: true,
-						min_tickets: 0,
-						allow_transfer_ticket_start: release,
-						allow_transfer_ticket_stop: release,
-						transfer_group_ids: [],
-						allowed_group_ids: editableIds,
-						addons: []
-					},
-					{ notify: false }
-				);
-				detailedTicketKinds = [...detailedTicketKinds, await getTicketKind(ticketKindId)];
+			if (!primary) {
+				error = m.error_title();
+				return;
 			}
+			await saveProduct(
+				primary.id,
+				{
+					...productBody(primary, linkedAddons(primary, activityAddons)),
+					allowed_group_ids: editableIds
+				},
+				{ notify: false }
+			);
+			primary.allowed_group_ids = editableIds;
 			visibilityGroupIds = [...new Set([...ticketKindVisibilityGroupIds, ...editableIds])];
 			toasts.show('success', m.backend_success());
 		} catch (cause) {
@@ -577,15 +647,15 @@
 		error = null;
 		try {
 			for (const kind of regularTicketKinds) {
-				if (hasDefaultTransferGroups(kind, regularTicketKinds)) continue;
-				const transfer_group_ids = defaultTransferGroups(kind, regularTicketKinds);
-				await saveTicketKind(
-					kind.ticket_kind_id,
+				const transfer_group_ids = defaultTransferGroupIds;
+				if (sameGroups(kind.transfer_group_ids, transfer_group_ids)) continue;
+				await saveProduct(
+					kind.id,
 					{
-						...ticketKindBody(kind),
+						...productBody(kind, linkedAddons(kind, activityAddons)),
 						transfer_group_ids
 					},
-					{ syncTransfers: false, notify: false }
+					{ notify: false }
 				);
 				kind.transfer_group_ids = transfer_group_ids;
 			}
@@ -639,7 +709,7 @@
 			const activityId = id ?? crypto.randomUUID();
 			if (!form.image_id) form.image_id = await uploadRandomColorImage();
 			const keepsAdminAccess = adminGroupIds.some(
-				(groupId) => groupId === form.creator_id || form.host_ids.includes(groupId)
+				(groupId) => groupId === form.sales_target_group_id || form.host_ids.includes(groupId)
 			);
 			const parsedNorth = parseCoordinate(north, 'north');
 			const parsedEast = parseCoordinate(east, 'east');
@@ -747,40 +817,42 @@
 		try {
 			const activityId = crypto.randomUUID();
 			const copy = $state.snapshot(form);
-			const sourceTicketKinds = await getActivityTicketKinds(id);
+			const sourceTicketKinds = await listActivityProducts(id);
 			await saveActivity(activityId, {
 				...copy,
 				is_hidden: true,
 				title: copiedLocalizedTitle(copy.title)
 			});
-			const addonCopies = new SvelteMap<string, PutTicketKind['addons'][number]>();
-			for (const addon of await listActivityAddons(id)) {
+			const addonCopies = new SvelteMap<string, AvailableAddon>();
+			for (const addon of await listAddons({ activityId: id })) {
 				const cloned = copyTicketAddon(addon);
-				await saveActivityAddon(activityId, cloned);
+				await saveAddon({ activityId }, cloned);
 				addonCopies.set(addon.id, cloned);
 			}
 			const now = Date.now();
 			const delayedRelease = new Date(now + 86_400_000).toISOString();
 			await Promise.all(
-				sourceTicketKinds.map((kind) => {
-					const releaseHasPassed =
-						kind.has_been_released || new Date(kind.purchasing_available_start).getTime() <= now;
-					const release = releaseHasPassed ? delayedRelease : kind.purchasing_available_start;
-					return saveTicketKind(
-						crypto.randomUUID(),
-						{
-							...ticketKindBody(kind),
-							activity_id: activityId,
-							purchasing_available_start: release,
-							allow_transfer_ticket_start:
-								kind.allow_transfer_ticket_start === kind.purchasing_available_start
-									? release
-									: kind.allow_transfer_ticket_start,
-							addons: kind.available_addons.map((addon) => addonCopies.get(addon.id)!)
-						},
-						{ syncTransfers: false, notify: false }
-					);
-				})
+				sourceTicketKinds
+					.filter((kind) => !isVisibilityProduct(kind))
+					.map((kind) => {
+						const releaseHasPassed =
+							kind.tickets_been_released || new Date(kind.sales_start).getTime() <= now;
+						const release = releaseHasPassed ? delayedRelease : kind.sales_start;
+						return saveProduct(
+							crypto.randomUUID(),
+							{
+								...productBody(
+									kind,
+									linkedAddons(kind, activityAddons).map((addon) => addonCopies.get(addon.id)!)
+								),
+								sales_start: release,
+								sales_stop: kind.sales_stop,
+								resale_start: kind.resale_start === kind.sales_start ? release : kind.resale_start,
+								activity_ids: [activityId]
+							},
+							{ notify: false }
+						);
+					})
 			);
 			allowNavigation = true;
 			await goto(resolve('/activities/[id]', { id: activityId }));
@@ -797,12 +869,6 @@
 		saving = true;
 		error = null;
 		try {
-			for (const kind of [...visibilityTicketKinds]) {
-				await deleteTicketKind(kind.ticket_kind_id);
-				detailedTicketKinds = detailedTicketKinds.filter(
-					(candidate) => candidate.ticket_kind_id !== kind.ticket_kind_id
-				);
-			}
 			await deleteActivity(id);
 			allowNavigation = true;
 			await goto(resolve('/'), { replaceState: true });
@@ -817,7 +883,7 @@
 
 <header class="page-header edit-page-header">
 	<div>
-		<p class="eyebrow">{m.nav_activities()}</p>
+		<p class="eyebrow">{m.nav_activities()} · {m.views({ count: activityViews })}</p>
 		<h1>
 			<span class="activity-title-status">
 				<span
@@ -873,7 +939,10 @@
 					{groups}
 					{adminGroupIds}
 					creatorReadonly={!isNew}
-					creatorName={localize(creatorGroup?.name, creatorGroup?.path ?? form.creator_id)}
+					creatorName={localize(
+						creatorGroup?.name,
+						creatorGroup?.path ?? form.sales_target_group_id
+					)}
 					{contactKind}
 					{contactValue}
 					{imageUrl}
@@ -895,6 +964,19 @@
 					onnorthchange={(value) => (north = value)}
 					oneastchange={(value) => (east = value)} />
 
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.stock_group()}</h2>
+						<p class="muted">{m.stock_group_help()}</p>
+					</div>
+					<GroupTreePicker
+						{groups}
+						selectedIds={form.stock_group_id ? [form.stock_group_id] : []}
+						onchange={(ids) => {
+							form.stock_group_id = ids.at(-1);
+						}} />
+				</section>
+
 				<section class="card card-pad">
 					<div>
 						<div class="section-heading">
@@ -906,9 +988,9 @@
 						</p>
 						<GroupTreeExplorer
 							{groups}
-							revealIds={[form.creator_id, ...savedHostIds, ...pendingHostIds]}>
+							revealIds={[form.sales_target_group_id, ...savedHostIds, ...pendingHostIds]}>
 							{#snippet children(row)}
-								{#if row.group.id === form.creator_id}
+								{#if row.group.id === form.sales_target_group_id}
 									<span class="host-tree-label">
 										<GroupIcon
 											url={row.group.logo_url}
@@ -969,35 +1051,185 @@
 			{/if}
 
 			{#if editorTab === 'tickets' && id}
-				<section class="card card-pad">
+				{#if hasMultipleSalesGroups}
+					<p class="info-banner" role="status">
+						{m.multiple_sales_groups_warning({ groups: productSalesGroupLabels.join(', ') })}
+					</p>
+				{/if}
+				<section class="card card-pad stack">
+					<div class="section-heading">
+						<h2 class="section-title">{m.base_ticket()}</h2>
+						{#if baseTicketProduct}<span class="pill">{m.ticket_base_required()}</span>{/if}
+					</div>
+					<p class="muted">{m.ticket_base_help()}</p>
+					{#if baseTicketProduct}
+						<div class="ticket-summary">
+							<div class="list-main">
+								<strong>{localize(baseTicketProduct.name, '').trim() || m.empty_product()}</strong>
+								<span
+									>{kronor(baseTicketProduct.price)} · {baseTicketProduct.sales_stock ??
+										'∞'}{m.number_of()} · {dateTime(baseTicketProduct.sales_start)}</span>
+								<span class="muted"
+									>{m.ticket_available_to({
+										groups: groupLabelList(baseTicketProduct.allowed_group_ids)
+									})}</span>
+							</div>
+							{#if canEdit}
+								<a
+									class="button-link secondary"
+									href={resolve('/products/[id]', { id: baseTicketProduct.id })}>{m.edit()}</a>
+							{/if}
+						</div>
+						{#if ticketCapacityTracked}
+							<div class="stack">
+								<h3 class="section-title">{m.ticket_capacity()}</h3>
+								<div class="capacity-bar" role="img" aria-label={m.ticket_capacity()}>
+									{#each ticketCapacity as entry (entry.id)}
+										{#if entry.sold > 0}
+											<span
+												class="capacity-segment capacity-sold"
+												style:background={entry.color}
+												style:width="{((entry.sold / ticketCapacityTotal) * 100).toFixed(2)}%"
+											></span>
+										{/if}
+										{#if entry.remaining > 0}
+											<span
+												class="capacity-segment"
+												style:background={entry.color}
+												style:width="{((entry.remaining / ticketCapacityTotal) * 100).toFixed(2)}%"
+											></span>
+										{/if}
+									{/each}
+								</div>
+								<ul class="capacity-legend">
+									{#each ticketCapacity as entry (entry.id)}
+										<li>
+											<span class="capacity-swatch" style:background={entry.color}></span>
+											<span>{entry.base ? m.base_ticket() : entry.name}</span>
+											<span class="pill"
+												>{m.ticket_capacity_left({
+													left: entry.remaining,
+													total: entry.remaining + entry.sold
+												})}</span>
+											<span class="muted">{m.ticket_sold_count({ count: entry.sold })}</span>
+											{#if !entry.base}
+												<span class="muted"
+													>{m.ticket_reserved_for({ groups: entry.reservedFor })}</span>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+								<p class="muted">{m.ticket_capacity_total({ count: ticketCapacityTotal })}</p>
+							</div>
+						{:else}
+							<p class="muted">{m.ticket_capacity_untracked()}</p>
+						{/if}
+					{:else if baseProduct && canEdit}
+						{@const addTicketsUrl = `${resolve('/products/[id]', { id: baseProduct.id })}?ticket=1&activity=${id}`}
+						<p class="muted">{m.ticket_add_help()}</p>
+						<div class="toolbar">
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the route is resolved, the query is appended -->
+							<a class="button-link" href={addTicketsUrl}>
+								<Plus size={17} />
+								{m.ticket_add()}
+							</a>
+						</div>
+					{:else}
+						<p class="info-banner" role="status">{m.ticket_base_missing()}</p>
+					{/if}
+				</section>
+				<section class="card card-pad stack">
 					<div class="section-heading">
 						<h2 class="section-title">{m.tickets()}</h2>
-						{#if canEdit}
-							<a class="button-link" href={resolve(`/tickets/new/?activity=${id}` as Pathname)}
-								><Plus size={17} /> {m.new_ticket()}</a>
-						{/if}
+						<div class="toolbar">
+							{#if canEdit}
+								<button
+									class="button-link secondary"
+									type="button"
+									disabled={saving || extraTicketKinds.length === 0}
+									onclick={() => void releaseAllocatedTickets()}>{m.release_allocated()}</button>
+								<a class="button-link" href={resolve(`/products/new/?activity=${id}` as Pathname)}
+									><Plus size={17} /> {m.new_ticket()}</a>
+							{/if}
+						</div>
 					</div>
-					{#if regularTicketKinds.length === 0}<p class="empty-state">
+					<p class="muted">{m.ticket_other_kinds_help()}</p>
+					{#if extraTicketKinds.length === 0}<p class="empty-state">
 							{m.empty()}
 						</p>{:else}<ul class="list">
-							{#each regularTicketKinds as ticket (ticket.ticket_kind_id)}<li>
+							{#each extraTicketKinds as product (product.id)}<li>
 									<div class="list-main">
-										<strong
-											>{localize(ticket.ticket_kind_name, '').trim() ||
-												m.empty_ticket_kind()}</strong
-										><span
-											>{kronor(ticket.price)} · {ticket.max_tickets}{m.number_of()} · {dateTime(
-												ticket.purchasing_available_start
+										<strong>{localize(product.name, '').trim() || m.empty_product()}</strong><span
+											>{kronor(product.price)} · {product.sales_stock ?? '∞'}{m.number_of()} · {dateTime(
+												product.sales_start
 											)}</span>
+										<span class="muted"
+											>{m.ticket_reserved_for({
+												groups: groupLabelList(product.allowed_group_ids)
+											})}</span>
 									</div>
 									{#if canEdit}
 										<a
 											class="button-link secondary"
-											href={resolve('/tickets/[id]', { id: ticket.ticket_kind_id })}>{m.edit()}</a>
+											href={resolve('/products/[id]', { id: product.id })}>{m.edit()}</a>
 									{/if}
 								</li>{/each}
 						</ul>{/if}
 				</section>
+				{#if canEdit && regularTicketKinds.length > 0}
+					<section class="card card-pad stack">
+						<h2 class="section-title">{m.ticket_invites()}</h2>
+						<p class="muted">{m.ticket_invites_help()}</p>
+						<label class="field">
+							<span>{m.ticket_invites_kind()}</span>
+							<select
+								bind:value={inviteKindId}
+								onchange={() => void loadTicketBuyers(inviteKindId)}>
+								<option value="">{m.choose()}</option>
+								{#each regularTicketKinds as product (product.id)}
+									<option value={product.id}>{localize(product.name, '').trim()}</option>
+								{/each}
+							</select>
+						</label>
+						{#if inviteKind}
+							<div class="stack">
+								<p class="muted">{m.ticket_invites_external_help()}</p>
+								<div class="grid-2">
+									<label class="field"
+										><span>{m.external_user_name()}</span>
+										<input type="text" bind:value={externalName} /></label>
+									<div>
+										<button
+											class="button-link"
+											type="button"
+											disabled={!externalName.trim()}
+											onclick={() => void inviteAnonymous()}>
+											{m.ticket_invites_external()}
+										</button>
+									</div>
+								</div>
+							</div>
+							<UserList
+								title={m.ticket_invites()}
+								items={ticketBuyers.map((buyer) => ({
+									user_id: buyer.user_id,
+									name: buyer.name ?? undefined
+								}))}
+								suggestions={userSuggestions.filter(
+									(user) => !user.user_id.startsWith('email:') && !user.user_id.startsWith('api:')
+								)}
+								addLabel={m.verifier_user_id()}
+								addText={m.add()}
+								removeText={m.remove()}
+								onadd={(userId) =>
+									changeInvites(() => inviteTicketBuyer(id!, inviteKind.id, userId))}
+								onremove={(userId) =>
+									changeInvites(() => removeTicketBuyer(id!, inviteKind.id, userId))} />
+						{:else}
+							<p class="muted">{m.ticket_invites_none()}</p>
+						{/if}
+					</section>
+				{/if}
 				<section class="card card-pad">
 					<div class="section-heading">
 						<h2 class="section-title">{m.addons()}</h2>
@@ -1016,7 +1248,7 @@
 									<span
 										>{m.addon_applied_ticket_kinds({
 											count: regularTicketKinds.filter((kind) =>
-												kind.available_addons.some((item) => item.id === addon.id)
+												linkedAddons(kind, activityAddons).some((item) => item.id === addon.id)
 											).length
 										})} · {m.addon_alternative_count({ count: addon.options.length })} · {minPrice ===
 										maxPrice
@@ -1031,17 +1263,24 @@
 						{:else}<li class="empty-state">{m.empty()}</li>{/each}
 					</ul>
 				</section>
-				<section class="card card-pad">
+				<section class="card card-pad stack">
 					<h2 class="section-title">{m.visibility_access()}</h2>
-					<p class="muted">{m.activities_details()}</p>
-					<GroupTreePicker
-						{groups}
-						selectedIds={visibilityGroupIds}
-						disabledIds={ticketKindVisibilityGroupIds}
-						inheritDescendants
-						disabled={savingVisibility}
-						disabledTitle={m.visibility_access_from_ticket_kind()}
-						onchange={persistVisibilityGroups} />
+					{#if baseTicketProduct}
+						{@const baseTicketUrl = `${resolve('/products/[id]', { id: baseTicketProduct.id })}?activity=${id}`}
+						<p class="muted">{m.visibility_access_base_ticket_help()}</p>
+						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the route is resolved, the query is appended -->
+						<a class="button-link secondary" href={baseTicketUrl}>{m.edit()}</a>
+					{:else}
+						<p class="muted">{m.visibility_access_help()}</p>
+						<GroupTreePicker
+							{groups}
+							selectedIds={visibilityGroupIds}
+							disabledIds={ticketKindVisibilityGroupIds}
+							inheritDescendants
+							disabled={savingVisibility}
+							disabledTitle={m.visibility_access_from_ticket_kind()}
+							onchange={persistVisibilityGroups} />
+					{/if}
 				</section>
 				{#if regularTicketKinds.length > 0}
 					<section class="card card-pad stack">
@@ -1063,18 +1302,18 @@
 				{/if}
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.advanced()}</h2>
-					<HelpTip text={m.activity_capacity_help()}>
-						<label class="switch-field">
-							<Switch value={limitCapacity} onchange={({ value }) => toggleCapacityLimit(value)} />
-							<span>{m.activity_capacity()}</span>
-						</label>
-					</HelpTip>
-					{#if limitCapacity}<label class="field"
-							><span>{m.activity_capacity()}</span><small>{m.activity_capacity_help()}</small><input
+					<label class="field"
+						><span>{m.per_user_limit()}</span><small>{m.per_user_limit_help()}</small>
+						<Select
+							value={capacityPreset}
+							options={capacityOptions}
+							onchange={({ value }) => setCapacityPreset(String(value))} /></label>
+					{#if capacityPreset === 'multiple'}<label class="field"
+							><span>{m.per_user_limit_count()}</span><input
 								type="number"
-								min={minimumCapacity}
+								min="2"
 								max={I32_MAX - 1}
-								bind:value={form.max_tickets} /></label
+								bind:value={form.max_tickets_per_user} /></label
 						>{/if}
 					<label class="switch-field" title={m.hide_other_admins_help()}
 						><Switch
@@ -1085,7 +1324,87 @@
 				</section>
 			{/if}
 
+			{#if editorTab === 'products' && id}
+				<section class="card card-pad stack">
+					<h2 class="section-title">{m.activity_linked_items()}</h2>
+					<ul class="list">
+						{#each linkedItems as product (product.id)}
+							<li>
+								<div class="list-main">
+									<strong>{localize(product.name, '')}</strong><span>{kronor(product.price)}</span>
+								</div>
+								<a
+									class="button-link secondary"
+									href={resolve('/products/[id]', { id: product.id })}>{m.edit()}</a>
+							</li>
+						{:else}<li class="empty-state">{m.empty()}</li>{/each}
+					</ul>
+				</section>
+				{#if canEdit && form.stock_group_id}
+					<section class="card card-pad stack">
+						<h2 class="section-title">{m.activity_take_out_stock()}</h2>
+						<p class="muted">{m.activity_take_out_stock_help()}</p>
+						<a
+							class="button-link"
+							href="{resolve('/stock/[groupId]/movements/new', {
+								groupId: form.stock_group_id
+							})}?activity={id}">{m.activity_take_out_stock()}</a>
+					</section>
+				{/if}
+				{#if canEdit}
+					<section class="card card-pad stack">
+						<h2 class="section-title">{m.activity_add_items()}</h2>
+						<ul class="list">
+							{#each unlinkedItems as product (product.id)}
+								<li>
+									<div class="list-main">
+										<strong>{localize(product.name, '')}</strong><span
+											>{groups.find((group) => group.id === product.group_id)?.path ??
+												product.group_id}</span>
+									</div>
+									<button
+										class="button-link secondary"
+										type="button"
+										disabled={linkingItemId !== null}
+										onclick={() => void linkItem(product.id)}>{m.activity_add_item()}</button>
+								</li>
+							{:else}<li class="empty-state">{m.empty()}</li>{/each}
+						</ul>
+					</section>
+				{/if}
+			{/if}
+
 			{#if editorTab === 'sales' && id && canEdit}
+				<SalesDevices activityId={id} activityEnd={form.time_end} canEdit />
+				<section class="card card-pad stack">
+					<h2 class="section-title">{m.sales()}</h2>
+					<p class="muted">{m.sales_export_help()}</p>
+					<ExportPdf
+						kind="sales"
+						groupId={form.sales_target_group_id}
+						activityId={id}
+						fileName={`sales-activity-${id}.pdf`} />
+				</section>
+				<section class="card card-pad stack">
+					<div>
+						<h2 class="section-title">{m.resale_offers()}</h2>
+						<p class="muted">{m.resale_offers_help()}</p>
+					</div>
+					{#if resales.length === 0}
+						<p class="empty-state">{m.empty()}</p>
+					{:else}
+						<ul class="list">
+							{#each resales as resale (resale.purchase_id)}
+								<li>
+									<div class="list-main">
+										<strong>{localize(resale.product_name, '')}</strong>
+										<span>{resale.owner_name || resale.owner_id} · {kronor(resale.price)}</span>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
 				<section class="card card-pad stack">
 					<p class="muted">{m.activity_verifiers_help()}</p>
 					<UserList
@@ -1104,7 +1423,7 @@
 						<h2 class="section-title">{m.addon_statistics()}</h2>
 						<p class="muted">{m.addon_statistics_help()}</p>
 					</div>
-					<PurchaseGrid purchases={owners} kinds={detailedTicketKinds} view="breakdown" />
+					<PurchaseGrid purchases={owners} kinds={purchaseKinds} view="breakdown" />
 				</section>
 
 				<section class="card card-pad stack">
@@ -1124,22 +1443,20 @@
 								type="button"
 								aria-label={m.export_all_ticket_purchasers()}
 								title={m.export_all_ticket_purchasers()}
-								onclick={() =>
-									downloadTicketPurchasersCsv(owners, detailedTicketKinds, userSuggestions)}>
+								onclick={() => downloadTicketPurchasersCsv(owners, purchaseKinds, userSuggestions)}>
 								<Download size={16} />
 							</button>
 						{/if}
 					</div>
-					<PurchaseGrid purchases={owners} kinds={detailedTicketKinds} />
+					<PurchaseGrid
+						purchases={owners}
+						kinds={purchaseKinds}
+						onRefund={refundActivityPurchase} />
 				</section>
 
 				<section class="card card-pad stack">
 					<h2 class="section-title">{m.memberships()}</h2>
-					<PurchaseGrid
-						purchases={owners}
-						kinds={detailedTicketKinds}
-						{groups}
-						view="memberships" />
+					<PurchaseGrid purchases={owners} kinds={purchaseKinds} {groups} view="memberships" />
 				</section>
 
 				<section class="card card-pad stack">
@@ -1209,114 +1526,6 @@
 				</section>
 			{/if}
 
-			{#if editorTab === 'notifications' && id && canEdit}
-				<section class="card card-pad stack">
-					<div>
-						<h2 class="section-title">{m.scheduled_notifications()}</h2>
-					</div>
-					{#if scheduledNotifications.length === 0}
-						<p class="empty-state">
-							{m.empty()}
-						</p>
-					{:else}
-						<ul class="list">
-							{#each scheduledNotifications as notification (notification.id)}
-								<li>
-									<div class="list-main">
-										<strong
-											>{[localize(notification.sender, ''), localize(notification.title, '')]
-												.filter((part) => part.trim())
-												.join(': ')}</strong>
-										<span>
-											{notificationRecipientLabel(notification.recipient)} · {dateTime(
-												notification.send_at
-											)}{notification.sent ? ` · ${m.sent()}` : ''}
-										</span>
-										<span>{localize(notification.content)}</span>
-									</div>
-									<div class="toolbar">
-										<button
-											class="icon-button"
-											type="button"
-											disabled={notification.sent || form.is_hidden}
-											aria-label={m.edit()}
-											title={form.is_hidden
-												? m.activity_not_published_notification()
-												: notification.sent
-													? m.sent()
-													: m.edit()}
-											onclick={() => editNotification(notification)}>
-											<Pencil size={16} />
-										</button>
-										<button
-											class="icon-button danger-button"
-											type="button"
-											disabled={notification.sent || deletingNotificationKey === notification.id}
-											aria-label={m.delete()}
-											onclick={() => void removeNotification(notification.id)}>
-											<Trash2 size={16} />
-										</button>
-									</div>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</section>
-				<section class="card card-pad stack">
-					<h2 class="section-title">
-						{editingNotificationId ? m.edit_notification() : m.new_notification()}
-					</h2>
-					{#if form.is_hidden}
-						<p class="error-banner" role="alert">{m.activity_not_published_notification()}</p>
-					{/if}
-					<label class="field notification-target-field">
-						<span>{m.notification_recipient()}</span>
-						<Select
-							value={notificationTarget}
-							options={[
-								{ id: 'all', label: m.notification_recipient_all() },
-								{ id: 'buyers', label: m.notification_recipient_buyers() },
-								{ id: 'ticket_holders', label: m.notification_recipient_ticket_holders() }
-							]}
-							onchange={({ value }) =>
-								(notificationTarget = String(value) as ActivityNotificationKind)} />
-					</label>
-					<div class="grid-2">
-						<NotificationFields
-							value={notificationDraft}
-							sender={localize(form.title)}
-							onchange={(value) => (notificationDraft = value)} />
-					</div>
-					{#if notificationTarget === 'buyers'}
-						<p class="warning-banner" role="note">
-							{m.activity_notification_recipients_warning()}
-						</p>
-					{/if}
-					<NotificationWarnings
-						sendAt={notificationDraft.send_at}
-						activityRecipient={notificationTarget}
-						dangerousActivityVisibility={hasDangerousVisibilityGroup} />
-					<div class="toolbar">
-						<button
-							class="button-link"
-							type="button"
-							disabled={notificationSaving || form.is_hidden}
-							title={form.is_hidden ? m.activity_not_published_notification() : undefined}
-							onclick={() => void createNotification()}>
-							{#if editingNotificationId}<Pencil size={16} />{:else}<Plus size={16} />{/if}
-							{notificationSaving ? m.saving() : m.save_notification()}
-						</button>
-						{#if editingNotificationId}
-							<button
-								class="button-link secondary"
-								type="button"
-								disabled={notificationSaving}
-								onclick={cancelNotificationEdit}>{m.cancel()}</button>
-						{/if}
-					</div>
-				</section>
-			{/if}
-
 			<div class="editor-action-dock">
 				<button class="button-link" type="submit" disabled={saving || uploading}
 					>{saving ? m.saving() : m.save()}</button>
@@ -1332,3 +1541,49 @@
 		</fieldset>
 	</form>
 {/if}
+
+<style>
+	.ticket-summary {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 15px;
+		padding: 14px;
+		border: 1px solid #303531;
+		border-radius: 9px;
+		background: #1a1d1b;
+	}
+	.capacity-bar {
+		display: flex;
+		height: 14px;
+		overflow: hidden;
+		border-radius: 99px;
+		background: #242925;
+	}
+	.capacity-segment {
+		display: block;
+		height: 100%;
+	}
+	.capacity-legend {
+		display: grid;
+		gap: 6px;
+		padding: 0;
+		margin: 0;
+		list-style: none;
+	}
+	.capacity-legend li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		font-size: 0.84rem;
+	}
+	.capacity-sold {
+		opacity: 0.45;
+	}
+	.capacity-swatch {
+		width: 10px;
+		height: 10px;
+		border-radius: 3px;
+	}
+</style>

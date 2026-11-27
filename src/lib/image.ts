@@ -38,18 +38,16 @@ export async function uploadImage(file: File): Promise<string> {
 	const extension = upload.name.split('.').pop()?.toLowerCase() ?? '';
 	const contentType = IMAGE_CONTENT_TYPES[extension];
 	if (!contentType) throw new Error('Unsupported image format');
-	const allowance = responseData(await api.POST('/admin/upload-image', { body: { extension } }));
+	// Additive request field while generated API types catch up with the backend release.
+	const body = { extension, size_bytes: upload.size };
+	const allowance = responseData(await api.POST('/v0/admin/upload-image', { body }));
 	if (upload.size > allowance.max_size_bytes) throw new Error('The image is too large');
 
+	// The backend signs an S3 POST policy, so the file must be the last multipart field.
 	const form = new FormData();
 	for (const [key, value] of Object.entries(allowance.fields)) form.append(key, value);
-	for (const [key, value] of Object.entries(allowance.dynamic_fields)) {
-		// A range constrains the policy; it is not an S3 multipart form field.
-		if (key.toLowerCase() === 'content-length-range') continue;
-		form.append(key, key.toLowerCase() === 'content-type' ? contentType : value);
-	}
-	form.set('key', allowance.key);
-	form.append('file', upload);
+	for (const [key, value] of Object.entries(allowance.dynamic_fields)) form.append(key, value);
+	form.append('file', upload, upload.name);
 	const result = await fetch(allowance.url, { method: 'POST', body: form });
 	if (!result.ok) throw new Error(`Image upload failed (${result.status})`);
 	toasts.show('success', m.image_ready());
